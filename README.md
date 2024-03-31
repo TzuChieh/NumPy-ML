@@ -1,6 +1,6 @@
 # MNIST-training
 
-My testground for the basics of neural networks.
+My testground for the basics of neural networks. Following Michael Nielsen's [Neural Networks and Deep Learning](http://neuralnetworksanddeeplearning.com/). The implementation is in Python 3.
 
 ## Database
 
