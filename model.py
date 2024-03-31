@@ -48,7 +48,8 @@ class Network:
             if test_data:
                 num_right_answers = self.evaluate_performance(test_data)
                 num_test_data = len(test_data)
-                performance_info += f"{num_right_answers} / {num_test_data} ({num_right_answers / num_test_data})"
+                performance_info = (
+                    f"performance: {num_right_answers} / {num_test_data} ({num_right_answers / num_test_data})")
             else:
                 performance_info = "performance evaluation skipped"
 
@@ -58,7 +59,7 @@ class Network:
         """
         @return Number of correct outputs.
         """
-        results = [(np.argmax(self.feedforward(x)), y) for x, y in test_data]
+        results = [(np.argmax(self.feedforward(x)), np.argmax(y)) for x, y in test_data]
         return sum(1 for network_y, y in results if network_y == y)
 
 
@@ -70,8 +71,8 @@ class Network:
             delta_del_b, delta_del_w = self._backpropagation(x, y)
             del_b = [bi + dbi for bi, dbi in zip(del_b, delta_del_b)]
             del_w = [wi + dwi for wi, dwi in zip(del_w, delta_del_w)]
-        del_b /= len(mini_batch_data)
-        del_w /= len(mini_batch_data)
+        del_b = [bi / len(mini_batch_data) for bi in del_b]
+        del_w = [wi / len(mini_batch_data) for wi in del_w]
 
         # Update biases and weights
         self.biases = [b - eta * bi for b, bi in zip(self.biases, del_b)]
@@ -97,7 +98,7 @@ class Network:
         delta = self._derived_cost(activations[-1], y) * derived_sigmoid(zs[-1])
         del_b[-1] = delta
         del_w[-1] = np.matmul(delta, activations[-2].transpose())
-        for layer_idx in reversed(range(0, self.num_layers - 1)):
+        for layer_idx in reversed(range(0, self.num_layers - 2)):
             z = zs[layer_idx]
             derived_s = derived_sigmoid(z)
             delta = np.matmul(self.weights[layer_idx + 1].transpose(), delta) * derived_s
@@ -108,6 +109,6 @@ class Network:
         
     def _derived_cost(self, output_activations, y):
         """
-        @return @f$ \partial C_x / \partial a_output @f$
+        @return @f$ \\partial C_x / \\partial a_output @f$
         """
         return output_activations - y
