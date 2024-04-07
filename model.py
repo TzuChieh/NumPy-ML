@@ -13,10 +13,7 @@ class Network:
     def __init__(self, layer_sizes):
         self.num_layers = len(layer_sizes)
         self.layer_sizes = layer_sizes
-
-        rng = np.random.default_rng()
-        self.biases = [rng.standard_normal((y, 1)) for y in layer_sizes[1:]]
-        self.weights = [rng.standard_normal((y, x)) for x, y in zip(layer_sizes[:-1], layer_sizes[1:])]
+        self.init_scaled_gaussian_weights()
 
     def feedforward(self, a):
         """
@@ -62,6 +59,20 @@ class Network:
         results = [(np.argmax(self.feedforward(x)), np.argmax(y)) for x, y in test_data]
         return sum(1 for network_y, y in results if network_y == y)
 
+    def init_gaussian_weights(self):
+        """
+        Included just for completeness. Please use at least `init_scaled_gaussian_weights()` for better performance.
+        """
+        rng = np.random.default_rng()
+        sizes = self.layer_sizes
+        self.biases = [rng.standard_normal((y, 1)) for y in sizes[1:]]
+        self.weights = [rng.standard_normal((y, x)) for x, y in zip(sizes[:-1], sizes[1:])]
+
+    def init_scaled_gaussian_weights(self):
+        rng = np.random.default_rng()
+        sizes = self.layer_sizes
+        self.biases = [rng.standard_normal((y, 1)) for y in sizes[1:]]
+        self.weights = [rng.standard_normal((y, x)) / np.sqrt(x) for x, y in zip(sizes[:-1], sizes[1:])]
 
     def _update_mini_batch(self, mini_batch_data, eta):
         # Approximating the true `del_b` and `del_w` from m samples

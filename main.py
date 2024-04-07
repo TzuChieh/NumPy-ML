@@ -34,5 +34,7 @@ validation_data = training_data[50000:]
 training_data = training_data[:50000]
 
 network = model.Network([num_image_pixels, 30, 10])
+# network = model.Network([num_image_pixels, 100, 10])
+# network = model.Network([num_image_pixels, 10])
 network.stochastic_gradient_descent(training_data, 30, 10, 3.0, test_data)
 
