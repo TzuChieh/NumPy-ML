@@ -50,6 +50,7 @@ class Network:
         self.layer_sizes = layer_sizes
         self.cost = cost_type()
         self.init_scaled_gaussian_weights()
+        self.init_velocities()
 
     def feedforward(self, a):
         """
@@ -66,6 +67,7 @@ class Network:
         num_epochs,
         mini_batch_size,
         eta,
+        momentum = 0.0,
         lambba = 0.0,
         test_data = None):
         """
@@ -78,7 +80,7 @@ class Network:
                 training_data[bi : bi + mini_batch_size]
                 for bi in range(0, len(training_data), mini_batch_size)]
             for mini_batch_data in mini_batches:
-                self._update_mini_batch(mini_batch_data, eta, lambba, len(training_data))
+                self._update_mini_batch(mini_batch_data, eta, momentum, lambba, len(training_data))
             
             if test_data:
                 performance_info = f"performance: {self.performance_report(test_data)}"
@@ -111,7 +113,15 @@ class Network:
         self.biases = [rng.standard_normal((y, 1)) for y in sizes[1:]]
         self.weights = [rng.standard_normal((y, x)) / np.sqrt(x) for x, y in zip(sizes[:-1], sizes[1:])]
 
-    def _update_mini_batch(self, mini_batch_data, eta, lambba, n):
+    def init_velocities(self):
+        """
+        Initialize gradient records.
+        """
+        sizes = self.layer_sizes
+        self.v_biases = [np.zeros((y, 1)) for y in sizes[1:]]
+        self.v_weights = [np.zeros((y, x)) for x, y in zip(sizes[:-1], sizes[1:])]
+
+    def _update_mini_batch(self, mini_batch_data, eta, momentum, lambba, n):
         """
         @param n Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
@@ -126,10 +136,15 @@ class Network:
         del_b = [bi / len(mini_batch_data) for bi in del_b]
         del_w = [wi / len(mini_batch_data) for wi in del_w]
 
+        # Update momentum parameters
+        self.v_biases = [
+            vb * momentum - eta * bi for vb, bi in zip(self.v_biases, del_b)]
+        self.v_weights = [
+            vw * momentum - eta * lambba / n * w - eta * wi for w, vw, wi in zip(self.weights, self.v_weights, del_w)]
+
         # Update biases and weights
-        regularizer = 1 - eta * lambba / n
-        self.biases = [b - eta * bi for b, bi in zip(self.biases, del_b)]
-        self.weights = [regularizer * w - eta * wi for w, wi in zip(self.weights, del_w)]
+        self.biases = [b + vb for b, vb in zip(self.biases, self.v_biases)]
+        self.weights = [w + vw for w, vw in zip(self.weights, self.v_weights)]
 
     def _backpropagation(self, x, y):
         """
