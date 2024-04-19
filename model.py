@@ -3,54 +3,17 @@ from abc import ABC, abstractmethod
 from typing import Iterable
 
 import numpy as np
+    
 
-
-def sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-z))
-
-def derived_sigmoid(z):
-    return sigmoid(z) * (1.0 - sigmoid(z))
-
-
-class CostFunction(ABC):
+class ActivationFunction(ABC):
     @abstractmethod
-    def func(self, a, y):
+    def eval(self, z):
+        pass
+        
+    @abstractmethod
+    def eval_derived(self, z):
         pass
 
-    @abstractmethod
-    def delta(self, a, y, z):
-        """
-        The initial delta term for backpropagation. This is handled separately as the delta for output neurons
-        must take cost function into account.
-        """
-        pass
-
-
-class QuadraticCost(CostFunction):
-    def func(self, a, y):
-        """
-        Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
-        to make its derived form cleaner (for convenience).
-        """
-        return 0.5 * np.linalg.norm(a - y) ** 2
-    
-    def delta(self, a, y, z):
-        """
-        Note that the `(a - y)` term is @f$ \\partial C_x / \\partial a_output @f$.
-        """
-        return (a - y) * derived_sigmoid(z)
-    
-class CrossEntropyCost(CostFunction):
-    def func(self, a, y):
-        """
-        Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can
-        help with that.
-        """
-        return np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
-
-    def delta(self, a, y, z):
-        return a - y
-    
 
 class Layer(ABC):
     @property
@@ -69,15 +32,28 @@ class Layer(ABC):
         """
         pass
 
+    @property
+    @abstractmethod
+    def activation(self) -> ActivationFunction:
+        """
+        @return The activation function.
+        """
+        pass
+
     @abstractmethod
     def weighted_input(self, input_a):
         """
+        @param input_a The input activation vector.
         @return The weighted input vector (z).
         """
         pass
 
     @abstractmethod
     def update_parameters(self, bias, weight):
+        """
+        @param bias The new bias vector.
+        @param weight The new weight matrix.
+        """
         pass
 
     @abstractmethod
@@ -94,6 +70,7 @@ class Layer(ABC):
         """
         @param input_a The input activation vector. Note that a 1-D vector of `n` elements should have shape = `(n, 1)`
         (a column vector).
+        @param kwargs Allows to specify implementation defined extra arguments.
         @return Activation vector of the layer.
         """
         pass
@@ -108,11 +85,61 @@ class Layer(ABC):
         pass
 
 
+class CostFunction(ABC):
+    @abstractmethod
+    def eval(self, a, y):
+        pass
+
+    @abstractmethod
+    def delta(self, a, y, z, output_layer: Layer):
+        """
+        The initial delta term for backpropagation. This is handled separately as the delta for output neurons
+        must take cost function into account.
+        """
+        pass
+
+
+class SigmoidActivation(ActivationFunction):
+    def eval(self, z):
+        return 1.0 / (1.0 + np.exp(-z))
+    
+    def eval_derived(self, z):
+        return self.eval(z) * (1.0 - self.eval(z))
+
+
+class QuadraticCost(CostFunction):
+    def eval(self, a, y):
+        """
+        Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
+        to make its derived form cleaner (for convenience).
+        """
+        return 0.5 * np.linalg.norm(a - y) ** 2
+    
+    def delta(self, a, y, z, output_layer):
+        """
+        Note that the `(a - y)` term is @f$ \\partial C_x / \\partial a_output @f$.
+        """
+        return (a - y) * output_layer.activation.eval_derived(z)
+    
+
+class CrossEntropyCost(CostFunction):
+    def eval(self, a, y):
+        """
+        Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can
+        help with that.
+        """
+        return np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
+
+    def delta(self, a, y, z, output_layer):
+        return a - y
+
+
 class FullyConnectedLayer(Layer):
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size, output_size, activation_type: ActivationFunction=SigmoidActivation):
         super().__init__()
         self._input_size = input_size
         self._output_size = output_size
+        self._activation = activation_type()
         self.init_scaled_gaussian_weights()
 
     @property
@@ -122,6 +149,10 @@ class FullyConnectedLayer(Layer):
     @property
     def weight(self):
         return self._weight
+    
+    @property
+    def activation(self):
+        return self._activation
     
     def weighted_input(self, input_a):
         x = input_a
@@ -139,15 +170,18 @@ class FullyConnectedLayer(Layer):
         return (del_b, del_w)
 
     def feedforward(self, input_a, **kwargs):
+        """
+        @param kwargs 'z': weighted input (`input_a` will be ignored).
+        """
         if 'z' in kwargs:
             z = kwargs['z']
         else:
             z = self.weighted_input(input_a)
-        return sigmoid(z)
+        return self.activation.eval(z)
 
     def backpropagate(self, input_z, delta):
-        derived_s = derived_sigmoid(input_z)
-        return np.matmul(self._weight.transpose(), delta) * derived_s
+        dadz = self.activation.eval_derived(input_z)
+        return np.matmul(self._weight.transpose(), delta) * dadz
 
     def init_gaussian_weights(self):
         """
@@ -286,7 +320,7 @@ class Network:
             activations.append(layer.feedforward(None, z=z))
 
         # Backward pass
-        delta = self.cost.delta(activations[-1], y, zs[-1])
+        delta = self.cost.delta(activations[-1], y, zs[-1], self.hidden_layers[-1])
         del_bs[-1], del_ws[-1] = self.hidden_layers[-1].derived_parameters(activations[-2], delta)
         for layer_idx in reversed(range(0, self.num_layers - 2)):
             layer = self.hidden_layers[layer_idx]
