@@ -3,7 +3,8 @@ import random
 import numpy as np
 
 import idx_file
-import model
+from model import Network
+from model import FullyConnectedLayer
 
 
 def label_to_output(training_label):
@@ -33,11 +34,12 @@ random.shuffle(training_data)
 validation_data = training_data[50000:]
 training_data = training_data[:50000]
 
-# network = model.Network([num_image_pixels, 30, 10])
-network = model.Network([num_image_pixels, 100, 10])
-# network = model.Network([num_image_pixels, 10])
-# network.stochastic_gradient_descent(training_data, 30, 10, 0.5, test_data=test_data)
+# network = Network([num_image_pixels, 30, 10])
+network = Network(
+    [FullyConnectedLayer(num_image_pixels, 100), FullyConnectedLayer(100, 10)])
+# network = Network([num_image_pixels, 10])
+network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 60, 10, eta=0.1, momentum=0.0, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.1, momentum=0.5, lambba=5.0, test_data=test_data)
-network.stochastic_gradient_descent(training_data, 60, 10, eta=0.1, momentum=0.5, lambba=5.0, test_data=test_data)
+# network.stochastic_gradient_descent(training_data, 1000, 10, eta=0.1, momentum=0.2, lambba=5.0, test_data=test_data)
 

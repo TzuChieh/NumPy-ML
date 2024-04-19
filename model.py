@@ -1,5 +1,6 @@
 import random
 from abc import ABC, abstractmethod
+from typing import Iterable
 
 import numpy as np
 
@@ -10,6 +11,7 @@ def sigmoid(z):
 def derived_sigmoid(z):
     return sigmoid(z) * (1.0 - sigmoid(z))
 
+
 class CostFunction(ABC):
     @abstractmethod
     def func(self, a, y):
@@ -17,7 +19,12 @@ class CostFunction(ABC):
 
     @abstractmethod
     def delta(self, a, y, z):
+        """
+        The initial delta term for backpropagation. This is handled separately as the delta for output neurons
+        must take cost function into account.
+        """
         pass
+
 
 class QuadraticCost(CostFunction):
     def func(self, a, y):
@@ -43,22 +50,138 @@ class CrossEntropyCost(CostFunction):
 
     def delta(self, a, y, z):
         return a - y
+    
+
+class Layer(ABC):
+    @property
+    @abstractmethod
+    def bias(self):
+        """
+        @return The bias vector.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def weight(self):
+        """
+        @return The weight matrix.
+        """
+        pass
+
+    @abstractmethod
+    def weighted_input(self, input_a):
+        """
+        @return The weighted input vector (z).
+        """
+        pass
+
+    @abstractmethod
+    def update_parameters(self, bias, weight):
+        pass
+
+    @abstractmethod
+    def derived_parameters(self, input_a, delta):
+        """
+        @param input_a The input activation vector.
+        @param delta The error vector.
+        @return Gradient of biase and weight in the form `(del_b, del_w)`.
+        """
+        pass
+
+    @abstractmethod
+    def feedforward(self, input_a, **kwargs):
+        """
+        @param input_a The input activation vector. Note that a 1-D vector of `n` elements should have shape = `(n, 1)`
+        (a column vector).
+        @return Activation vector of the layer.
+        """
+        pass
+
+    @abstractmethod
+    def backpropagate(self, input_z, delta):
+        """
+        @param input_z The weighted input vector from previous layer.
+        @param delta The error vector.
+        @return The error vector for previous layer.
+        """
+        pass
+
+
+class FullyConnectedLayer(Layer):
+    def __init__(self, input_size, output_size):
+        super().__init__()
+        self._input_size = input_size
+        self._output_size = output_size
+        self.init_scaled_gaussian_weights()
+
+    @property
+    def bias(self):
+        return self._bias
+    
+    @property
+    def weight(self):
+        return self._weight
+    
+    def weighted_input(self, input_a):
+        x = input_a
+        b = self._bias
+        w = self._weight
+        return np.matmul(w, x) + b
+    
+    def update_parameters(self, bias, weight):
+        self._bias = bias
+        self._weight = weight
+
+    def derived_parameters(self, input_a, delta):
+        del_b = np.copy(delta)
+        del_w = np.matmul(delta, input_a.transpose())
+        return (del_b, del_w)
+
+    def feedforward(self, input_a, **kwargs):
+        if 'z' in kwargs:
+            z = kwargs['z']
+        else:
+            z = self.weighted_input(input_a)
+        return sigmoid(z)
+
+    def backpropagate(self, input_z, delta):
+        derived_s = derived_sigmoid(input_z)
+        return np.matmul(self._weight.transpose(), delta) * derived_s
+
+    def init_gaussian_weights(self):
+        """
+        Included just for completeness. Please use at least `init_scaled_gaussian_weights()` for better performance.
+        """
+        rng = np.random.default_rng()
+        y = self._output_size
+        x = self._input_size
+        self._bias = rng.standard_normal((y, 1))
+        self._weight = rng.standard_normal((y, x))
+
+    def init_scaled_gaussian_weights(self):
+        rng = np.random.default_rng()
+        y = self._output_size
+        x = self._input_size
+        self._bias = rng.standard_normal((y, 1))
+        self._weight = rng.standard_normal((y, x)) / np.sqrt(x)
+
 
 class Network:
-    def __init__(self, layer_sizes, cost_type=CrossEntropyCost):
-        self.num_layers = len(layer_sizes)
-        self.layer_sizes = layer_sizes
+    def __init__(self, hidden_layers: Iterable[Layer], cost_type=CrossEntropyCost):
+        self.hidden_layers = hidden_layers
+        self.num_layers = len(hidden_layers) + 1
         self.cost = cost_type()
-        self.init_scaled_gaussian_weights()
         self.init_velocities()
 
-    def feedforward(self, a):
+    def feedforward(self, x):
         """
-        @param a The input matrix. Note that a 1-D vector of `n` elements should have shape = `(n, 1)`
+        @param x The input vector. Note that a 1-D vector of `n` elements should have shape = `(n, 1)`
         (a column vector).
         """
-        for b, w in zip(self.biases, self.weights):
-            a = sigmoid(np.matmul(w, a) + b)
+        a = x
+        for layer in self.hidden_layers:
+            a = layer.feedforward(a)
         return a
     
     def stochastic_gradient_descent(
@@ -98,79 +221,77 @@ class Network:
         num_test_data = len(test_data)
         return f"{num_right_answers} / {num_test_data} ({num_right_answers / num_test_data})"
 
-    def init_gaussian_weights(self):
-        """
-        Included just for completeness. Please use at least `init_scaled_gaussian_weights()` for better performance.
-        """
-        rng = np.random.default_rng()
-        sizes = self.layer_sizes
-        self.biases = [rng.standard_normal((y, 1)) for y in sizes[1:]]
-        self.weights = [rng.standard_normal((y, x)) for x, y in zip(sizes[:-1], sizes[1:])]
-
-    def init_scaled_gaussian_weights(self):
-        rng = np.random.default_rng()
-        sizes = self.layer_sizes
-        self.biases = [rng.standard_normal((y, 1)) for y in sizes[1:]]
-        self.weights = [rng.standard_normal((y, x)) / np.sqrt(x) for x, y in zip(sizes[:-1], sizes[1:])]
-
     def init_velocities(self):
         """
         Initialize gradient records.
         """
-        sizes = self.layer_sizes
-        self.v_biases = [np.zeros((y, 1)) for y in sizes[1:]]
-        self.v_weights = [np.zeros((y, x)) for x, y in zip(sizes[:-1], sizes[1:])]
+        self.v_biases = [np.zeros(b.shape) for b in self.biases]
+        self.v_weights = [np.zeros(w.shape) for w in self.weights]
+
+    @property
+    def biases(self):
+        """
+        @return List of biases of the hidden layers.
+        """
+        return [layer.bias for layer in self.hidden_layers]
+    
+    @property
+    def weights(self):
+        """
+        @return List of weights of the hidden layers.
+        """
+        return [layer.weight for layer in self.hidden_layers]
 
     def _update_mini_batch(self, mini_batch_data, eta, momentum, lambba, n):
         """
         @param n Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
         """
-        # Approximating the true `del_b` and `del_w` from m samples
-        del_b = [np.zeros(b.shape) for b in self.biases]
-        del_w = [np.zeros(w.shape) for w in self.weights]
+        # Approximating the true `del_b` and `del_w` from m samples for each hidden layer
+        del_bs = [np.zeros(layer.bias.shape) for layer in self.hidden_layers]
+        del_ws = [np.zeros(layer.weight.shape) for layer in self.hidden_layers]
         for x, y in mini_batch_data:
-            delta_del_b, delta_del_w = self._backpropagation(x, y)
-            del_b = [bi + dbi for bi, dbi in zip(del_b, delta_del_b)]
-            del_w = [wi + dwi for wi, dwi in zip(del_w, delta_del_w)]
-        del_b = [bi / len(mini_batch_data) for bi in del_b]
-        del_w = [wi / len(mini_batch_data) for wi in del_w]
+            delta_del_bs, delta_del_ws = self._backpropagation(x, y)
+            del_bs = [bi + dbi for bi, dbi in zip(del_bs, delta_del_bs)]
+            del_ws = [wi + dwi for wi, dwi in zip(del_ws, delta_del_ws)]
+        del_bs = [bi / len(mini_batch_data) for bi in del_bs]
+        del_ws = [wi / len(mini_batch_data) for wi in del_ws]
 
         # Update momentum parameters
         self.v_biases = [
-            vb * momentum - eta * bi for vb, bi in zip(self.v_biases, del_b)]
+            vb * momentum - eta * bi for vb, bi in zip(self.v_biases, del_bs)]
         self.v_weights = [
-            vw * momentum - eta * lambba / n * w - eta * wi for w, vw, wi in zip(self.weights, self.v_weights, del_w)]
+            vw * momentum - eta * lambba / n * w - eta * wi for w, vw, wi in zip(self.weights, self.v_weights, del_ws)]
 
         # Update biases and weights
-        self.biases = [b + vb for b, vb in zip(self.biases, self.v_biases)]
-        self.weights = [w + vw for w, vw in zip(self.weights, self.v_weights)]
+        new_biases = [b + vb for b, vb in zip(self.biases, self.v_biases)]
+        new_weights = [w + vw for w, vw in zip(self.weights, self.v_weights)]
+        for layer, new_b, new_w in zip(self.hidden_layers, new_biases, new_weights):
+            layer.update_parameters(new_b, new_w)
 
     def _backpropagation(self, x, y):
         """
         @param x Training inputs.
         @param y Training outputs.
         """
-        del_b = [np.zeros(b.shape) for b in self.biases]
-        del_w = [np.zeros(w.shape) for w in self.weights]
+        del_bs = [np.zeros(b.shape) for b in self.biases]
+        del_ws = [np.zeros(w.shape) for w in self.weights]
 
         # Forward pass: store activations & weighted inputs (`zs`) layer by layer
         activations = [x]
         zs = []
-        for b, w in zip(self.biases, self.weights):
-            z = np.matmul(w, activations[-1]) + b
+        for layer in self.hidden_layers:
+            z = layer.weighted_input(activations[-1])
             zs.append(z)
-            activations.append(sigmoid(z))
+            activations.append(layer.feedforward(None, z=z))
 
         # Backward pass
         delta = self.cost.delta(activations[-1], y, zs[-1])
-        del_b[-1] = delta
-        del_w[-1] = np.matmul(delta, activations[-2].transpose())
+        del_bs[-1], del_ws[-1] = self.hidden_layers[-1].derived_parameters(activations[-2], delta)
         for layer_idx in reversed(range(0, self.num_layers - 2)):
-            z = zs[layer_idx]
-            derived_s = derived_sigmoid(z)
-            delta = np.matmul(self.weights[layer_idx + 1].transpose(), delta) * derived_s
-            del_b[layer_idx] = delta
-            del_w[layer_idx] = np.matmul(delta, activations[layer_idx].transpose())
+            layer = self.hidden_layers[layer_idx]
+            next_layer = self.hidden_layers[layer_idx + 1]
+            delta = next_layer.backpropagate(zs[layer_idx], delta)
+            del_bs[layer_idx], del_ws[layer_idx] = layer.derived_parameters(activations[layer_idx], delta)
 
-        return del_b, del_w
+        return (del_bs, del_ws)
