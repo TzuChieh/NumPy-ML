@@ -1,6 +1,14 @@
+"""
+@brief Contains components for building a neural network.
+All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column vector).
+"""
+
+
 import random
 from abc import ABC, abstractmethod
 from typing import Iterable
+from timeit import default_timer as timer
+from datetime import timedelta
 
 import numpy as np
     
@@ -8,10 +16,21 @@ import numpy as np
 class ActivationFunction(ABC):
     @abstractmethod
     def eval(self, z):
+        """
+        @param The input vector.
+        @return Vector of the evaluated function.
+        """
         pass
         
     @abstractmethod
-    def eval_derived(self, z):
+    def jacobian(self, z, **kwargs):
+        """
+        @param The input vector.
+        @return A matrix of all the function's first-order derivatives with respect to `z`. For example,
+        the 1st row would be (da(z1)/dz1, da(z1)/dz2, ..., da(z1)/dzn),
+        the 2nd row would be (da(z2)/dz1, da(z2)/dz2, ..., da(z2)/dzn),
+        and so on (all the way to da(zn)/dzn).
+        """
         pass
 
 
@@ -68,17 +87,15 @@ class Layer(ABC):
     @abstractmethod
     def feedforward(self, input_a, **kwargs):
         """
-        @param input_a The input activation vector. Note that a 1-D vector of `n` elements should have shape = `(n, 1)`
-        (a column vector).
+        @param input_a The input activation vector.
         @param kwargs Allows to specify implementation defined extra arguments.
         @return Activation vector of the layer.
         """
         pass
 
     @abstractmethod
-    def backpropagate(self, input_z, delta):
+    def backpropagate(self, delta):
         """
-        @param input_z The weighted input vector from previous layer.
         @param delta The error vector.
         @return The error vector for previous layer.
         """
@@ -88,23 +105,47 @@ class Layer(ABC):
 class CostFunction(ABC):
     @abstractmethod
     def eval(self, a, y):
+        """
+        @return A vector of cost values.
+        """
         pass
 
     @abstractmethod
-    def delta(self, a, y, z, output_layer: Layer):
+    def derived_eval(self, a, y):
         """
-        The initial delta term for backpropagation. This is handled separately as the delta for output neurons
-        must take cost function into account.
+        This method would have return a jacobian like `ActivationFunction.jacobian()`. However, currently all
+        implementations are element-wise independent so we stick with returning a vector.
+        @return A vector of derived cost values.
         """
         pass
 
 
 class SigmoidActivation(ActivationFunction):
     def eval(self, z):
-        return 1.0 / (1.0 + np.exp(-z))
+        a = 1.0 / (1.0 + np.exp(-z))
+        return a
     
-    def eval_derived(self, z):
-        return self.eval(z) * (1.0 - self.eval(z))
+    def jacobian(self, z, **kwargs):
+        # Sigmoid is element-wise independent, so its jacobian is simply a diagonal matrix
+        a = kwargs['a'] if 'a' in kwargs else self.eval(z)
+        dadz = a * (1.0 - a)
+        return np.diagflat(dadz)
+    
+
+class SoftmaxActivation(ActivationFunction):
+    def eval(self, z):
+        # Improves numerical stability (does not change the result--will cancel out in the division)
+        z = z - np.max(z, axis=0, keepdims=True)
+        e_z = np.exp(z)
+        a = e_z / np.sum(e_z, axis=0, keepdims=True)
+        return a
+    
+    def jacobian(self, z, **kwargs):
+        # For a derivation that is clean and avoids looping & branching, see
+        # https://mattpetersen.github.io/softmax-with-cross-entropy
+        a = kwargs['a'] if 'a' in kwargs else self.eval(z)
+        dadz = np.diagflat(a) - np.outer(a, a)
+        return dadz
 
 
 class QuadraticCost(CostFunction):
@@ -115,23 +156,24 @@ class QuadraticCost(CostFunction):
         """
         return 0.5 * np.linalg.norm(a - y) ** 2
     
+    def derived_eval(self, a, y):
+        dCda = a - y
+        return dCda
+
     def delta(self, a, y, z, output_layer):
-        """
-        Note that the `(a - y)` term is @f$ \\partial C_x / \\partial a_output @f$.
-        """
-        return (a - y) * output_layer.activation.eval_derived(z)
+        dCda = a - y
+        dadz = output_layer.activation.jacobian(z, a=a)
+        return dadz @ dCda
     
 
 class CrossEntropyCost(CostFunction):
     def eval(self, a, y):
-        """
-        Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can
-        help with that.
-        """
+        # Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can help with that
         return np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
 
-    def delta(self, a, y, z, output_layer):
-        return a - y
+    def derived_eval(self, a, y):
+        dCda = (a - y) / (a * (1 - a))
+        return dCda
 
 
 class FullyConnectedLayer(Layer):
@@ -158,7 +200,7 @@ class FullyConnectedLayer(Layer):
         x = input_a
         b = self._bias
         w = self._weight
-        return np.matmul(w, x) + b
+        return w @ x + b
     
     def update_parameters(self, bias, weight):
         self._bias = bias
@@ -166,22 +208,19 @@ class FullyConnectedLayer(Layer):
 
     def derived_parameters(self, input_a, delta):
         del_b = np.copy(delta)
-        del_w = np.matmul(delta, input_a.transpose())
+        del_w = delta @ input_a.T
         return (del_b, del_w)
 
     def feedforward(self, input_a, **kwargs):
         """
         @param kwargs 'z': weighted input (`input_a` will be ignored).
         """
-        if 'z' in kwargs:
-            z = kwargs['z']
-        else:
-            z = self.weighted_input(input_a)
+        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(input_a)
         return self.activation.eval(z)
 
-    def backpropagate(self, input_z, delta):
-        dadz = self.activation.eval_derived(input_z)
-        return np.matmul(self._weight.transpose(), delta) * dadz
+    def backpropagate(self, delta):
+        w_T = self._weight.T
+        return w_T @ delta
 
     def init_gaussian_weights(self):
         """
@@ -210,8 +249,7 @@ class Network:
 
     def feedforward(self, x):
         """
-        @param x The input vector. Note that a 1-D vector of `n` elements should have shape = `(n, 1)`
-        (a column vector).
+        @param x The input vector.
         """
         a = x
         for layer in self.hidden_layers:
@@ -231,7 +269,11 @@ class Network:
         @param eta Learning rate.
         @param lambba The regularization parameter.
         """
+        sgd_start_time = timer()
+
         for ei in range(num_epochs):
+            epoch_start_time = timer()
+
             random.shuffle(training_data)
             mini_batches = [
                 training_data[bi : bi + mini_batch_size]
@@ -240,11 +282,15 @@ class Network:
                 self._update_mini_batch(mini_batch_data, eta, momentum, lambba, len(training_data))
             
             if test_data:
-                performance_info = f"performance: {self.performance_report(test_data)}"
+                performance_info = f"; performance: {self.performance_report(test_data)}"
             else:
-                performance_info = "performance evaluation skipped"
+                performance_info = f"; performance evaluation skipped"
 
-            print(f"epoch {ei + 1} / {num_epochs}; {performance_info}")
+            performance_info += f"; Δt: {timedelta(seconds=(timer() - epoch_start_time))}"
+
+            print(f"epoch {ei + 1} / {num_epochs} {performance_info}")
+
+        print(f"SGD Δt: {timedelta(seconds=(timer() - sgd_start_time))}")
 
     def performance_report(self, test_data):
         """
@@ -319,13 +365,19 @@ class Network:
             zs.append(z)
             activations.append(layer.feedforward(None, z=z))
 
-        # Backward pass
-        delta = self.cost.delta(activations[-1], y, zs[-1], self.hidden_layers[-1])
+        # Backward pass (initial delta term, must take cost function into account)
+        dCda = self.cost.derived_eval(activations[-1], y)
+        dadz = self.hidden_layers[-1].activation.jacobian(None, a=activations[-1])
+        delta = dadz.T @ dCda
+
+        # Backward pass (hidden layers)
         del_bs[-1], del_ws[-1] = self.hidden_layers[-1].derived_parameters(activations[-2], delta)
         for layer_idx in reversed(range(0, self.num_layers - 2)):
             layer = self.hidden_layers[layer_idx]
             next_layer = self.hidden_layers[layer_idx + 1]
-            delta = next_layer.backpropagate(zs[layer_idx], delta)
+            delta = next_layer.backpropagate(delta)
+            dadz = layer.activation.jacobian(zs[layer_idx])
+            delta = dadz.T @ delta
             del_bs[layer_idx], del_ws[layer_idx] = layer.derived_parameters(activations[layer_idx], delta)
 
         return (del_bs, del_ws)
