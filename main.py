@@ -8,18 +8,18 @@ from model import FullyConnectedLayer
 
 
 def label_to_output(training_label):
-    output = np.zeros((10, 1))
-    output[training_label] = 1.0
+    output = np.zeros((10, 1), dtype=np.float32)
+    output[int(training_label)] = 1
     return output
 
-training_inputs = idx_file.load("./database/train-images-idx3-ubyte.gz")
-training_labels = idx_file.load("./database/train-labels-idx1-ubyte.gz")
-test_inputs = idx_file.load("./database/t10k-images-idx3-ubyte.gz")
-test_labels = idx_file.load("./database/t10k-labels-idx1-ubyte.gz")
+training_inputs = idx_file.load("./database/train-images-idx3-ubyte.gz").astype(np.float32)
+training_labels = idx_file.load("./database/train-labels-idx1-ubyte.gz").astype(np.float32)
+test_inputs = idx_file.load("./database/t10k-images-idx3-ubyte.gz").astype(np.float32)
+test_labels = idx_file.load("./database/t10k-labels-idx1-ubyte.gz").astype(np.float32)
 
 # Normalize to [0, 1]
-training_inputs = training_inputs / 255.0
-test_inputs = test_inputs / 255.0
+training_inputs = training_inputs / np.float32(255)
+test_inputs = test_inputs / np.float32(255)
 
 num_image_pixels = training_inputs.shape[1] * training_inputs.shape[2]
 

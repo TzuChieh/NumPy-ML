@@ -122,13 +122,13 @@ class CostFunction(ABC):
 
 class SigmoidActivation(ActivationFunction):
     def eval(self, z):
-        a = 1.0 / (1.0 + np.exp(-z))
+        a = 1 / (1 + np.exp(-z))
         return a
     
     def jacobian(self, z, **kwargs):
         # Sigmoid is element-wise independent, so its jacobian is simply a diagonal matrix
         a = kwargs['a'] if 'a' in kwargs else self.eval(z)
-        dadz = a * (1.0 - a)
+        dadz = a * (1 - a)
         return np.diagflat(dadz)
     
 
@@ -154,7 +154,7 @@ class QuadraticCost(CostFunction):
         Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
         to make its derived form cleaner (for convenience).
         """
-        return 0.5 * np.linalg.norm(a - y) ** 2
+        return np.float32(0.5) * np.linalg.norm(a - y) ** 2
     
     def derived_eval(self, a, y):
         dCda = a - y
@@ -203,6 +203,9 @@ class FullyConnectedLayer(Layer):
         return w @ x + b
     
     def update_parameters(self, bias, weight):
+        assert self._bias.dtype == 'float32'
+        assert self._weight.dtype == 'float32'
+
         self._bias = bias
         self._weight = weight
 
@@ -219,6 +222,8 @@ class FullyConnectedLayer(Layer):
         return self.activation.eval(z)
 
     def backpropagate(self, delta):
+        assert delta.dtype == 'float32'
+
         w_T = self._weight.T
         return w_T @ delta
 
@@ -229,15 +234,15 @@ class FullyConnectedLayer(Layer):
         rng = np.random.default_rng()
         y = self._output_size
         x = self._input_size
-        self._bias = rng.standard_normal((y, 1))
-        self._weight = rng.standard_normal((y, x))
+        self._bias = rng.standard_normal((y, 1), dtype=np.float32)
+        self._weight = rng.standard_normal((y, x), dtype=np.float32)
 
     def init_scaled_gaussian_weights(self):
         rng = np.random.default_rng()
         y = self._output_size
         x = self._input_size
-        self._bias = rng.standard_normal((y, 1))
-        self._weight = rng.standard_normal((y, x)) / np.sqrt(x)
+        self._bias = rng.standard_normal((y, 1), dtype=np.float32)
+        self._weight = rng.standard_normal((y, x), dtype=np.float32) / np.sqrt(x, dtype=np.float32)
 
 
 class Network:
@@ -271,6 +276,10 @@ class Network:
         """
         sgd_start_time = timer()
 
+        eta = np.float32(eta)
+        momentum = np.float32(momentum)
+        lambba = np.float32(lambba)
+
         for ei in range(num_epochs):
             epoch_start_time = timer()
 
@@ -288,7 +297,7 @@ class Network:
 
             performance_info += f"; Δt: {timedelta(seconds=(timer() - epoch_start_time))}"
 
-            print(f"epoch {ei + 1} / {num_epochs} {performance_info}")
+            print(f"epoch {ei + 1} / {num_epochs}{performance_info}")
 
         print(f"SGD Δt: {timedelta(seconds=(timer() - sgd_start_time))}")
 
@@ -305,8 +314,8 @@ class Network:
         """
         Initialize gradient records.
         """
-        self.v_biases = [np.zeros(b.shape) for b in self.biases]
-        self.v_weights = [np.zeros(w.shape) for w in self.weights]
+        self.v_biases = [np.zeros(b.shape, dtype=np.float32) for b in self.biases]
+        self.v_weights = [np.zeros(w.shape, dtype=np.float32) for w in self.weights]
 
     @property
     def biases(self):
@@ -327,15 +336,18 @@ class Network:
         @param n Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
         """
+        n = np.float32(n)
+        mini_batch_n = np.float32(len(mini_batch_data))
+
         # Approximating the true `del_b` and `del_w` from m samples for each hidden layer
-        del_bs = [np.zeros(layer.bias.shape) for layer in self.hidden_layers]
-        del_ws = [np.zeros(layer.weight.shape) for layer in self.hidden_layers]
+        del_bs = [np.zeros(layer.bias.shape, dtype=np.float32) for layer in self.hidden_layers]
+        del_ws = [np.zeros(layer.weight.shape, dtype=np.float32) for layer in self.hidden_layers]
         for x, y in mini_batch_data:
             delta_del_bs, delta_del_ws = self._backpropagation(x, y)
             del_bs = [bi + dbi for bi, dbi in zip(del_bs, delta_del_bs)]
             del_ws = [wi + dwi for wi, dwi in zip(del_ws, delta_del_ws)]
-        del_bs = [bi / len(mini_batch_data) for bi in del_bs]
-        del_ws = [wi / len(mini_batch_data) for wi in del_ws]
+        del_bs = [bi / mini_batch_n for bi in del_bs]
+        del_ws = [wi / mini_batch_n for wi in del_ws]
 
         # Update momentum parameters
         self.v_biases = [
@@ -354,9 +366,9 @@ class Network:
         @param x Training inputs.
         @param y Training outputs.
         """
-        del_bs = [np.zeros(b.shape) for b in self.biases]
-        del_ws = [np.zeros(w.shape) for w in self.weights]
-
+        del_bs = [np.zeros(b.shape, dtype=np.float32) for b in self.biases]
+        del_ws = [np.zeros(w.shape, dtype=np.float32) for w in self.weights]
+        
         # Forward pass: store activations & weighted inputs (`zs`) layer by layer
         activations = [x]
         zs = []
