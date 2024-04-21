@@ -282,19 +282,26 @@ class Network:
         training_data, 
         num_epochs,
         mini_batch_size,
-        eta,
-        momentum = 0.0,
-        lambba = 0.0,
-        test_data = None):
+        momentum=0.0,
+        eta=1,
+        lambba=0.0,
+        test_data=None,
+        report_training_performance=False,
+        report_test_performance=False,
+        report_training_cost=False,
+        report_test_cost=False):
         """
         @param eta Learning rate.
         @param lambba The regularization parameter.
         """
-        sgd_start_time = timer()
-
         eta = np.float32(eta)
         momentum = np.float32(momentum)
         lambba = np.float32(lambba)
+
+        print(f"optimizer: stochastic gradient descent, mini batch size: {mini_batch_size}, momentum: {momentum}")
+        print(f"learning rate: {eta}, L2 regularization: {lambba}")
+
+        sgd_start_time = timer()
 
         for ei in range(num_epochs):
             epoch_start_time = timer()
@@ -306,25 +313,58 @@ class Network:
             for mini_batch_data in mini_batches:
                 self._update_mini_batch(mini_batch_data, eta, momentum, lambba, len(training_data))
             
-            if test_data:
-                performance_info = f"; performance: {self.performance_report(test_data)}"
-            else:
-                performance_info = f"; performance evaluation skipped"
+            # Collects a brief report for this epoch
+            report = ""
 
-            performance_info += f"; Δt: {timedelta(seconds=(timer() - epoch_start_time))}"
+            if report_training_performance:
+                num, frac = self.performance(training_data)
+                report += f"; training perf: {num} / {len(training_data)} ({frac})"
 
-            print(f"epoch {ei + 1} / {num_epochs}{performance_info}")
+            if report_test_performance:
+                assert test_data is not None
+                num, frac = self.performance(test_data)
+                report += f"; test perf: {num} / {len(test_data)} ({frac})"
 
-        print(f"SGD Δt: {timedelta(seconds=(timer() - sgd_start_time))}")
+            if report_training_cost:
+                report += f"; training cost: {self.total_cost(training_data, lambba)}"
 
-    def performance_report(self, test_data):
+            if report_test_cost:
+                assert test_data is not None
+                report += f"; test cost: {self.total_cost(test_data, lambba)}"
+
+            report += f"; Δt: {timedelta(seconds=(timer() - epoch_start_time))}"
+
+            print(f"epoch {ei + 1} / {num_epochs}{report}")
+
+        print(f"total Δt: {timedelta(seconds=(timer() - sgd_start_time))}")
+
+    def performance(self, dataset):
         """
-        @return A string that contains information of the network performance.
+        @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
+        @return A tuple that contains (in order): number of correct outputs, fraction of correct outputs.
         """
-        results = [(np.argmax(self.feedforward(x)), np.argmax(y)) for x, y in test_data]
+        results = [(np.argmax(self.feedforward(x)), np.argmax(y)) for x, y in dataset]
         num_right_answers = sum(1 for network_y, y in results if network_y == y)
-        num_test_data = len(test_data)
-        return f"{num_right_answers} / {num_test_data} ({num_right_answers / num_test_data})"
+        num_data = len(dataset)
+        return (num_right_answers, num_right_answers / num_data)
+    
+    def total_cost(self, dataset, lambba):
+        """
+        @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
+        @param lambba The regularization parameter.
+        @return Total cost of the dataset.
+        """
+        cost = 0.0
+        rcp_dataset_n = 1.0 / len(dataset)
+        for x, y in dataset:
+            a = self.feedforward(x)
+            cost += self.cost.eval(a, y) * rcp_dataset_n
+
+        # L2 regularization term
+        sum_w2 = sum(np.linalg.norm(w) ** 2 for w in self.weights)
+        cost += lambba * rcp_dataset_n * 0.5 * sum_w2
+
+        return cost
 
     def init_velocities(self):
         """
