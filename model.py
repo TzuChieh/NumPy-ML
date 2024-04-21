@@ -6,6 +6,7 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 
 import random
 import warnings
+import sys
 from abc import ABC, abstractmethod
 from typing import Iterable
 from timeit import default_timer as timer
@@ -292,6 +293,7 @@ class Network:
         training_data, 
         num_epochs,
         mini_batch_size,
+        gradient_clip_norm=sys.float_info.max,
         momentum=0.0,
         eta=1,
         lambba=0.0,
@@ -301,14 +303,17 @@ class Network:
         report_training_cost=False,
         report_test_cost=False):
         """
+        @param gradient_clip_norm Clip threshold for backpropagation gradient based on norm.
         @param eta Learning rate.
         @param lambba The regularization parameter.
         """
-        eta = np.float32(eta)
+        gradient_clip_norm = np.float32(np.minimum(gradient_clip_norm, np.finfo(np.float32).max))
         momentum = np.float32(momentum)
+        eta = np.float32(eta)
         lambba = np.float32(lambba)
 
-        print(f"optimizer: stochastic gradient descent, mini batch size: {mini_batch_size}, momentum: {momentum}")
+        print(f"optimizer: stochastic gradient descent")
+        print(f"mini batch size: {mini_batch_size}, gradient clip: {gradient_clip_norm}, momentum: {momentum}")
         print(f"learning rate: {eta}, L2 regularization: {lambba}")
 
         sgd_start_time = timer()
@@ -321,7 +326,7 @@ class Network:
                 training_data[bi : bi + mini_batch_size]
                 for bi in range(0, len(training_data), mini_batch_size)]
             for mini_batch_data in mini_batches:
-                self._update_mini_batch(mini_batch_data, eta, momentum, lambba, len(training_data))
+                self._update_mini_batch(mini_batch_data, eta, gradient_clip_norm, momentum, lambba, len(training_data))
             
             # Collects a brief report for this epoch
             report = ""
@@ -397,7 +402,7 @@ class Network:
         """
         return [layer.weight for layer in self.hidden_layers]
 
-    def _update_mini_batch(self, mini_batch_data, eta, momentum, lambba, n):
+    def _update_mini_batch(self, mini_batch_data, eta, gradient_clip_norm, momentum, lambba, n):
         """
         @param n Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
@@ -409,7 +414,7 @@ class Network:
         del_bs = [np.zeros(layer.bias.shape, dtype=np.float32) for layer in self.hidden_layers]
         del_ws = [np.zeros(layer.weight.shape, dtype=np.float32) for layer in self.hidden_layers]
         for x, y in mini_batch_data:
-            delta_del_bs, delta_del_ws = self._backpropagation(x, y)
+            delta_del_bs, delta_del_ws = self._backpropagation(x, y, gradient_clip_norm)
             del_bs = [bi + dbi for bi, dbi in zip(del_bs, delta_del_bs)]
             del_ws = [wi + dwi for wi, dwi in zip(del_ws, delta_del_ws)]
         del_bs = [bi * rcp_mini_batch_n for bi in del_bs]
@@ -421,13 +426,15 @@ class Network:
         self.v_weights = [
             vw * momentum - eta * lambba * rcp_n * w - eta * wi for w, vw, wi in zip(self.weights, self.v_weights, del_ws)]
 
-        # Update biases and weights
+        # Compute new biases and weights
         new_biases = [b + vb for b, vb in zip(self.biases, self.v_biases)]
         new_weights = [w + vw for w, vw in zip(self.weights, self.v_weights)]
+
+        # Update biases and weights
         for layer, new_b, new_w in zip(self.hidden_layers, new_biases, new_weights):
             layer.update_parameters(new_b, new_w)
 
-    def _backpropagation(self, x, y):
+    def _backpropagation(self, x, y, gradient_clip_norm):
         """
         @param x Training inputs.
         @param y Training outputs.
@@ -447,6 +454,7 @@ class Network:
         dCda = self.cost.derived_eval(activations[-1], y)
         dadz = self.hidden_layers[-1].activation.jacobian(zs[-1], a=activations[-1])
         delta = dadz.T @ dCda
+        delta = self._gradient_clip(delta, gradient_clip_norm)
 
         # Backward pass (hidden layers)
         del_bs[-1], del_ws[-1] = self.hidden_layers[-1].derived_parameters(activations[-2], delta)
@@ -454,8 +462,18 @@ class Network:
             layer = self.hidden_layers[layer_idx]
             next_layer = self.hidden_layers[layer_idx + 1]
             delta = next_layer.backpropagate(delta)
+            delta = self._gradient_clip(delta, gradient_clip_norm)
             dadz = layer.activation.jacobian(zs[layer_idx])
             delta = dadz.T @ delta
             del_bs[layer_idx], del_ws[layer_idx] = layer.derived_parameters(activations[layer_idx], delta)
 
         return (del_bs, del_ws)
+
+    def _gradient_clip(self, delta, gradient_clip_norm):
+        # Potentially apply gradient clipping
+        if gradient_clip_norm < np.finfo(np.float32).max:
+            delta_norm = np.linalg.norm(delta)
+            if delta_norm >= gradient_clip_norm:
+                delta = delta / delta_norm * gradient_clip_norm
+                print(f"clipped {delta}")
+        return delta

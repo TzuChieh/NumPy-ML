@@ -47,7 +47,14 @@ network = Network(
 # network = Network([num_image_pixels, 10])
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
 network.stochastic_gradient_descent(
-    training_data, 30, 10, eta=0.05, lambba=1, test_data=test_data, report_test_performance=True, report_test_cost=True)
+    training_data,
+    30,
+    10,
+    eta=0.05,
+    lambba=1,
+    test_data=test_data,
+    report_test_performance=True,
+    report_test_cost=True)
 # network.stochastic_gradient_descent(training_data, 60, 10, eta=0.1, momentum=0.0, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.1, momentum=0.5, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 1000, 10, eta=0.1, momentum=0.2, lambba=5.0, test_data=test_data)
