@@ -4,8 +4,8 @@ import numpy as np
 
 import idx_file
 from model import Network
-from model import FullyConnectedLayer
-from model import SigmoidActivation, SoftmaxActivation
+from model import FullyConnected
+from model import Sigmoid, Softmax, ReLU
 
 
 def label_to_output(training_label):
@@ -40,10 +40,13 @@ validation_data = training_data[50000:]
 training_data = training_data[:50000]
 
 # network = Network([num_image_pixels, 30, 10])
+# network = Network(
+#     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
 network = Network(
-    [FullyConnectedLayer(num_image_pixels, 100), FullyConnectedLayer(100, 10, activation_type=SoftmaxActivation)])
+    [FullyConnected(num_image_pixels, 100, activation=ReLU()), FullyConnected(100, 10, activation=Softmax())])
 # network = Network([num_image_pixels, 10])
-network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
+# network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
+network.stochastic_gradient_descent(training_data, 30, 10, eta=0.1, lambba=5, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 60, 10, eta=0.1, momentum=0.0, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.1, momentum=0.5, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 1000, 10, eta=0.1, momentum=0.2, lambba=5.0, test_data=test_data)

@@ -26,6 +26,7 @@ class ActivationFunction(ABC):
     def jacobian(self, z, **kwargs):
         """
         @param The input vector.
+        @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return A matrix of all the function's first-order derivatives with respect to `z`. For example,
         the 1st row would be (da(z1)/dz1, da(z1)/dz2, ..., da(z1)/dzn),
         the 2nd row would be (da(z2)/dz1, da(z2)/dz2, ..., da(z2)/dzn),
@@ -88,7 +89,7 @@ class Layer(ABC):
     def feedforward(self, input_a, **kwargs):
         """
         @param input_a The input activation vector.
-        @param kwargs Allows to specify implementation defined extra arguments.
+        @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return Activation vector of the layer.
         """
         pass
@@ -120,7 +121,7 @@ class CostFunction(ABC):
         pass
 
 
-class SigmoidActivation(ActivationFunction):
+class Sigmoid(ActivationFunction):
     def eval(self, z):
         a = 1 / (1 + np.exp(-z))
         return a
@@ -132,7 +133,7 @@ class SigmoidActivation(ActivationFunction):
         return np.diagflat(dadz)
     
 
-class SoftmaxActivation(ActivationFunction):
+class Softmax(ActivationFunction):
     def eval(self, z):
         # Improves numerical stability (does not change the result--will cancel out in the division)
         z = z - np.max(z, axis=0, keepdims=True)
@@ -148,7 +149,18 @@ class SoftmaxActivation(ActivationFunction):
         return dadz
 
 
-class QuadraticCost(CostFunction):
+class ReLU(ActivationFunction):
+    def eval(self, z):
+        return z * (z > 0)
+    
+    def jacobian(self, z, **kwargs):
+        # Derivatives at 0 is implemented as 0. See "Numerical influence of ReLU'(0) on backpropagation",
+        # https://hal.science/hal-03265059/file/Impact_of_ReLU_prime.pdf
+        dadz = (z > 0).astype(np.float32)
+        return np.diagflat(dadz) 
+
+
+class Quadratic(CostFunction):
     def eval(self, a, y):
         """
         Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
@@ -167,25 +179,25 @@ class QuadraticCost(CostFunction):
         return dadz @ dCda
     
 
-class CrossEntropyCost(CostFunction):
+class CrossEntropy(CostFunction):
     def eval(self, a, y):
         # Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can help with that
         C = np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
         return C
 
     def derived_eval(self, a, y):
-        # Calculates `(a - y) / (a * (1 - a))` without 0/0 division
-        rcp_deno = np.nan_to_num(np.reciprocal(a * (1 - a)))
-        dCda = (a - y) * rcp_deno
+        # The epsilon is here to prevent division by 0
+        epsilon = np.float32(1e-16)
+        dCda = (a - y) / (a * (1 - a) + epsilon)
         return dCda
 
 
-class FullyConnectedLayer(Layer):
-    def __init__(self, input_size, output_size, activation_type: ActivationFunction=SigmoidActivation):
+class FullyConnected(Layer):
+    def __init__(self, input_size, output_size, activation: ActivationFunction=Sigmoid()):
         super().__init__()
         self._input_size = input_size
         self._output_size = output_size
-        self._activation = activation_type()
+        self._activation = activation
         self.init_scaled_gaussian_weights()
 
     @property
@@ -250,10 +262,10 @@ class FullyConnectedLayer(Layer):
 
 
 class Network:
-    def __init__(self, hidden_layers: Iterable[Layer], cost_type=CrossEntropyCost):
+    def __init__(self, hidden_layers: Iterable[Layer], cost: CostFunction=CrossEntropy()):
         self.hidden_layers = hidden_layers
         self.num_layers = len(hidden_layers) + 1
-        self.cost = cost_type()
+        self.cost = cost
         self.init_velocities()
 
     def feedforward(self, x):
@@ -340,8 +352,8 @@ class Network:
         @param n Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
         """
-        n = np.float32(n)
-        mini_batch_n = np.float32(len(mini_batch_data))
+        rcp_n = np.float32(1.0 / n)
+        rcp_mini_batch_n = np.float32(1.0 / len(mini_batch_data))
 
         # Approximating the true `del_b` and `del_w` from m samples for each hidden layer
         del_bs = [np.zeros(layer.bias.shape, dtype=np.float32) for layer in self.hidden_layers]
@@ -350,14 +362,14 @@ class Network:
             delta_del_bs, delta_del_ws = self._backpropagation(x, y)
             del_bs = [bi + dbi for bi, dbi in zip(del_bs, delta_del_bs)]
             del_ws = [wi + dwi for wi, dwi in zip(del_ws, delta_del_ws)]
-        del_bs = [bi / mini_batch_n for bi in del_bs]
-        del_ws = [wi / mini_batch_n for wi in del_ws]
+        del_bs = [bi * rcp_mini_batch_n for bi in del_bs]
+        del_ws = [wi * rcp_mini_batch_n for wi in del_ws]
 
         # Update momentum parameters
         self.v_biases = [
             vb * momentum - eta * bi for vb, bi in zip(self.v_biases, del_bs)]
         self.v_weights = [
-            vw * momentum - eta * lambba / n * w - eta * wi for w, vw, wi in zip(self.weights, self.v_weights, del_ws)]
+            vw * momentum - eta * lambba * rcp_n * w - eta * wi for w, vw, wi in zip(self.weights, self.v_weights, del_ws)]
 
         # Update biases and weights
         new_biases = [b + vb for b, vb in zip(self.biases, self.v_biases)]
@@ -379,11 +391,11 @@ class Network:
         for layer in self.hidden_layers:
             z = layer.weighted_input(activations[-1])
             zs.append(z)
-            activations.append(layer.feedforward(None, z=z))
+            activations.append(layer.feedforward(activations[-1], z=z))
 
         # Backward pass (initial delta term, must take cost function into account)
         dCda = self.cost.derived_eval(activations[-1], y)
-        dadz = self.hidden_layers[-1].activation.jacobian(None, a=activations[-1])
+        dadz = self.hidden_layers[-1].activation.jacobian(zs[-1], a=activations[-1])
         delta = dadz.T @ dCda
 
         # Backward pass (hidden layers)
