@@ -154,7 +154,8 @@ class QuadraticCost(CostFunction):
         Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
         to make its derived form cleaner (for convenience).
         """
-        return np.float32(0.5) * np.linalg.norm(a - y) ** 2
+        C = np.float32(0.5) * np.linalg.norm(a - y) ** 2
+        return C
     
     def derived_eval(self, a, y):
         dCda = a - y
@@ -169,10 +170,13 @@ class QuadraticCost(CostFunction):
 class CrossEntropyCost(CostFunction):
     def eval(self, a, y):
         # Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can help with that
-        return np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
+        C = np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
+        return C
 
     def derived_eval(self, a, y):
-        dCda = (a - y) / (a * (1 - a))
+        # Calculates `(a - y) / (a * (1 - a))` without 0/0 division
+        rcp_deno = np.nan_to_num(np.reciprocal(a * (1 - a)))
+        dCda = (a - y) * rcp_deno
         return dCda
 
 
