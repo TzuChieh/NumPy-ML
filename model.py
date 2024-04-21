@@ -5,6 +5,7 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 
 
 import random
+import warnings
 from abc import ABC, abstractmethod
 from typing import Iterable
 from timeit import default_timer as timer
@@ -12,6 +13,11 @@ from datetime import timedelta
 
 import numpy as np
     
+
+# An approximative value of machine epsilon, which is useful in avoiding some numerical issues such as division
+# by zero. Keras also uses this value, see https://github.com/tensorflow/tensorflow/blob/066e226b3ed6db054cdb5ed0ff2453b8c1ffb3f6/tensorflow/python/keras/backend_config.py#L24
+epsilon = np.float32(1e-7)
+
 
 class ActivationFunction(ABC):
     @abstractmethod
@@ -172,24 +178,28 @@ class Quadratic(CostFunction):
     def derived_eval(self, a, y):
         dCda = a - y
         return dCda
-
-    def delta(self, a, y, z, output_layer):
-        dCda = a - y
-        dadz = output_layer.activation.jacobian(z, a=a)
-        return dadz @ dCda
     
 
 class CrossEntropy(CostFunction):
     def eval(self, a, y):
-        # Note that the `(1 - y) * log(1 - a)` term can be NaN/Inf, and `np.nan_to_num()` can help with that
-        C = np.sum(np.nan_to_num(-y * np.log(a) - (1 - y) * np.log(1 - a)))
+        a = self._adapt_a(a)
+        C = np.sum(-y * np.log(a) - (1 - y) * np.log(1 - a))
         return C
 
     def derived_eval(self, a, y):
-        # The epsilon is here to prevent division by 0
-        epsilon = np.float32(1e-16)
-        dCda = (a - y) / (a * (1 - a) + epsilon)
+        a = self._adapt_a(a)
+        dCda = (a - y) / (a * (1 - a))
         return dCda
+    
+    def _adapt_a(self, a):
+        """
+        Slightly modify `a` to prevent division by 0 and NaN/Inf in various cost function operations (e.g.,
+        the `(1 - y) * log(1 - a)` term can be NaN/Inf).
+        """
+        # We modify `a` similar to Keras: https://github.com/tensorflow/tensorflow/blob/066e226b3ed6db054cdb5ed0ff2453b8c1ffb3f6/tensorflow/python/keras/backend.py#L5046.
+        # `np.nan_to_num()` could be an alternative solution, but it is more intrusive and needs to be tailored
+        # for each method.
+        return np.clip(a, epsilon, 1 - epsilon)
 
 
 class FullyConnected(Layer):
