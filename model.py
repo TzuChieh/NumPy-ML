@@ -13,11 +13,18 @@ from timeit import default_timer as timer
 from datetime import timedelta
 
 import numpy as np
+import numpy.typing as np_type
     
+
+# Type of the numbers used for calculation. Note that `real_type` can be used for both contructing scalars or for
+# specifying `dtype` arguments. `real_dtype` should be used for comparing `dtype`s
+real_type = np.float32
+real_dtype = np.dtype(real_type)
+
 
 # An approximative value of machine epsilon, which is useful in avoiding some numerical issues such as division
 # by zero. Keras also uses this value, see https://github.com/tensorflow/tensorflow/blob/066e226b3ed6db054cdb5ed0ff2453b8c1ffb3f6/tensorflow/python/keras/backend_config.py#L24
-epsilon = np.float32(1e-7)
+epsilon = real_type(1e-7)
 
 
 class ActivationFunction(ABC):
@@ -43,9 +50,14 @@ class ActivationFunction(ABC):
 
 
 class Layer(ABC):
+    def __init__(self, input_size, output_size):
+        super().__init__()
+        self.input_size = input_size
+        self.output_size = output_size
+
     @property
     @abstractmethod
-    def bias(self):
+    def bias(self) -> np_type.NDArray:
         """
         @return The bias vector.
         """
@@ -53,7 +65,7 @@ class Layer(ABC):
 
     @property
     @abstractmethod
-    def weight(self):
+    def weight(self) -> np_type.NDArray:
         """
         @return The weight matrix.
         """
@@ -76,7 +88,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def update_parameters(self, bias, weight):
+    def update_params(self, bias, weight):
         """
         @param bias The new bias vector.
         @param weight The new weight matrix.
@@ -84,7 +96,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def derived_parameters(self, input_a, delta):
+    def derived_params(self, input_a, delta):
         """
         @param input_a The input activation vector.
         @param delta The error vector.
@@ -108,6 +120,24 @@ class Layer(ABC):
         @return The error vector for previous layer.
         """
         pass
+
+    def init_normal_params(self):
+        """
+        Randomly set initial parameters. The random values forms a standard normal distribution.
+        """
+        rng = np.random.default_rng()
+        b = rng.standard_normal(self.bias.shape, dtype=real_type)
+        w = rng.standard_normal(self.weight.shape, dtype=real_type)
+        self.update_params(b, w)
+
+    def init_scaled_normal_params(self):
+        """
+        Scaled (weights) version of `init_normal_params()`. In theory works better for sigmoid and tanh neurons.
+        """
+        rng = np.random.default_rng()
+        b = rng.standard_normal(self.bias.shape, dtype=real_type)
+        w = rng.standard_normal(self.weight.shape, dtype=real_type) / np.sqrt(self.input_size, dtype=real_type)
+        self.update_params(b, w)
 
 
 class CostFunction(ABC):
@@ -173,7 +203,7 @@ class ReLU(ActivationFunction):
     def jacobian(self, z, **kwargs):
         # Derivatives at 0 is implemented as 0. See "Numerical influence of ReLU'(0) on backpropagation",
         # https://hal.science/hal-03265059/file/Impact_of_ReLU_prime.pdf
-        dadz = (z > 0).astype(np.float32)
+        dadz = (z > 0).astype(real_type)
         return np.diagflat(dadz) 
 
 
@@ -183,7 +213,7 @@ class Quadratic(CostFunction):
         Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
         to make its derived form cleaner (for convenience).
         """
-        C = np.float32(0.5) * np.linalg.norm(a - y) ** 2
+        C = real_type(0.5) * np.linalg.norm(a - y) ** 2
         return C
     
     def derived_eval(self, a, y):
@@ -215,11 +245,15 @@ class CrossEntropy(CostFunction):
 
 class FullyConnected(Layer):
     def __init__(self, input_size, output_size, activation: ActivationFunction=Sigmoid()):
-        super().__init__()
-        self._input_size = input_size
-        self._output_size = output_size
+        super().__init__(input_size, output_size)
         self._activation = activation
-        self.init_scaled_gaussian_weights()
+
+        y = output_size
+        x = input_size
+        self._bias = np.zeros((y, 1), dtype=real_type)
+        self._weight = np.zeros((y, x), dtype=real_type)
+
+        self.init_scaled_normal_params()
 
     @property
     def bias(self):
@@ -239,47 +273,91 @@ class FullyConnected(Layer):
         w = self._weight
         return w @ x + b
     
-    def update_parameters(self, bias, weight):
-        assert self._bias.dtype == 'float32'
-        assert self._weight.dtype == 'float32'
+    def update_params(self, bias, weight):
+        assert self._bias.dtype == real_dtype
+        assert self._weight.dtype == real_dtype
 
         self._bias = bias
         self._weight = weight
 
-    def derived_parameters(self, input_a, delta):
+    def derived_params(self, input_a, delta):
         del_b = np.copy(delta)
         del_w = delta @ input_a.T
         return (del_b, del_w)
 
     def feedforward(self, input_a, **kwargs):
         """
-        @param kwargs 'z': weighted input (`input_a` will be ignored).
+        @param kwargs 'z': weighted input from this layer (`input_a` will be ignored).
         """
         z = kwargs['z'] if 'z' in kwargs else self.weighted_input(input_a)
         return self.activation.eval(z)
 
     def backpropagate(self, delta):
-        assert delta.dtype == 'float32'
+        assert delta.dtype == real_dtype
 
         w_T = self._weight.T
         return w_T @ delta
 
-    def init_gaussian_weights(self):
-        """
-        Included just for completeness. Please use at least `init_scaled_gaussian_weights()` for better performance.
-        """
-        rng = np.random.default_rng()
-        y = self._output_size
-        x = self._input_size
-        self._bias = rng.standard_normal((y, 1), dtype=np.float32)
-        self._weight = rng.standard_normal((y, x), dtype=np.float32)
 
-    def init_scaled_gaussian_weights(self):
-        rng = np.random.default_rng()
-        y = self._output_size
-        x = self._input_size
-        self._bias = rng.standard_normal((y, 1), dtype=np.float32)
-        self._weight = rng.standard_normal((y, x), dtype=np.float32) / np.sqrt(x, dtype=np.float32)
+class Convolution(Layer):
+    def __init__(self, input_size, output_size, kernel_sizes, stride_sizes, activation: ActivationFunction=Sigmoid()):
+        super().__init__(input_size, output_size)
+        self._kernel_sizes = kernel_sizes
+        self._stride_sizes = stride_sizes
+        self._activation = activation
+
+        ky = kernel_sizes[0]
+        kx = kernel_sizes[1]
+        self._bias = np.float32(0)
+        self._weight = np.zeros((ky, kx), dtype=real_type)
+
+        self.init_scaled_normal_params()
+
+    @property
+    def bias(self):
+        return self._bias
+    
+    @property
+    def weight(self):
+        return self._weight
+    
+    @property
+    def activation(self):
+        return self._activation
+    
+    # def weighted_input(self, input_a):
+    #     x = input_a
+    #     b = self._bias
+    #     w = self._weight
+    #     return w @ x + b
+    
+    def update_params(self, bias, weight):
+        assert self._bias.dtype == real_dtype
+        assert self._weight.dtype == real_dtype
+
+        self._bias = bias
+        self._weight = weight
+
+    # def derived_params(self, input_a, delta):
+    #     del_b = np.copy(delta)
+    #     del_w = delta @ input_a.T
+    #     return (del_b, del_w)
+
+    def feedforward(self, input_a, **kwargs):
+        """
+        @param kwargs 'z': weighted input from this layer (`input_a` will be ignored).
+        """
+        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(input_a)
+
+        # TODO
+
+        return self.activation.eval(z)
+
+    # def backpropagate(self, delta):
+    #     assert delta.dtype == real_dtype
+
+    #     w_T = self._weight.T
+    #     return w_T @ delta
 
 
 class Network:
@@ -317,10 +395,10 @@ class Network:
         @param eta Learning rate.
         @param lambba The regularization parameter.
         """
-        gradient_clip_norm = np.float32(np.minimum(gradient_clip_norm, np.finfo(np.float32).max))
-        momentum = np.float32(momentum)
-        eta = np.float32(eta)
-        lambba = np.float32(lambba)
+        gradient_clip_norm = real_type(np.minimum(gradient_clip_norm, np.finfo(real_type).max))
+        momentum = real_type(momentum)
+        eta = real_type(eta)
+        lambba = real_type(lambba)
 
         print(f"optimizer: stochastic gradient descent")
         print(f"mini batch size: {mini_batch_size}, gradient clip: {gradient_clip_norm}, momentum: {momentum}")
@@ -395,8 +473,8 @@ class Network:
         """
         Initialize gradient records.
         """
-        self.v_biases = [np.zeros(b.shape, dtype=np.float32) for b in self.biases]
-        self.v_weights = [np.zeros(w.shape, dtype=np.float32) for w in self.weights]
+        self.v_biases = [np.zeros(b.shape, dtype=real_type) for b in self.biases]
+        self.v_weights = [np.zeros(w.shape, dtype=real_type) for w in self.weights]
 
     @property
     def biases(self):
@@ -417,12 +495,12 @@ class Network:
         @param n Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
         """
-        rcp_n = np.float32(1.0 / n)
-        rcp_mini_batch_n = np.float32(1.0 / len(mini_batch_data))
+        rcp_n = real_type(1.0 / n)
+        rcp_mini_batch_n = real_type(1.0 / len(mini_batch_data))
 
         # Approximating the true `del_b` and `del_w` from m samples for each hidden layer
-        del_bs = [np.zeros(layer.bias.shape, dtype=np.float32) for layer in self.hidden_layers]
-        del_ws = [np.zeros(layer.weight.shape, dtype=np.float32) for layer in self.hidden_layers]
+        del_bs = [np.zeros(layer.bias.shape, dtype=real_type) for layer in self.hidden_layers]
+        del_ws = [np.zeros(layer.weight.shape, dtype=real_type) for layer in self.hidden_layers]
         for x, y in mini_batch_data:
             delta_del_bs, delta_del_ws = self._backpropagation(x, y, gradient_clip_norm)
             del_bs = [bi + dbi for bi, dbi in zip(del_bs, delta_del_bs)]
@@ -442,15 +520,15 @@ class Network:
 
         # Update biases and weights
         for layer, new_b, new_w in zip(self.hidden_layers, new_biases, new_weights):
-            layer.update_parameters(new_b, new_w)
+            layer.update_params(new_b, new_w)
 
     def _backpropagation(self, x, y, gradient_clip_norm):
         """
         @param x Training inputs.
         @param y Training outputs.
         """
-        del_bs = [np.zeros(b.shape, dtype=np.float32) for b in self.biases]
-        del_ws = [np.zeros(w.shape, dtype=np.float32) for w in self.weights]
+        del_bs = [np.zeros(b.shape, dtype=real_type) for b in self.biases]
+        del_ws = [np.zeros(w.shape, dtype=real_type) for w in self.weights]
         
         # Forward pass: store activations & weighted inputs (`zs`) layer by layer
         activations = [x]
@@ -467,7 +545,7 @@ class Network:
         delta = self._gradient_clip(delta, gradient_clip_norm)
 
         # Backward pass (hidden layers)
-        del_bs[-1], del_ws[-1] = self.hidden_layers[-1].derived_parameters(activations[-2], delta)
+        del_bs[-1], del_ws[-1] = self.hidden_layers[-1].derived_params(activations[-2], delta)
         for layer_idx in reversed(range(0, self.num_layers - 2)):
             layer = self.hidden_layers[layer_idx]
             next_layer = self.hidden_layers[layer_idx + 1]
@@ -475,13 +553,13 @@ class Network:
             delta = self._gradient_clip(delta, gradient_clip_norm)
             dadz = layer.activation.jacobian(zs[layer_idx])
             delta = dadz.T @ delta
-            del_bs[layer_idx], del_ws[layer_idx] = layer.derived_parameters(activations[layer_idx], delta)
+            del_bs[layer_idx], del_ws[layer_idx] = layer.derived_params(activations[layer_idx], delta)
 
         return (del_bs, del_ws)
 
     def _gradient_clip(self, delta, gradient_clip_norm):
         # Potentially apply gradient clipping
-        if gradient_clip_norm < np.finfo(np.float32).max:
+        if gradient_clip_norm < np.finfo(real_type).max:
             delta_norm = np.linalg.norm(delta)
             if delta_norm >= gradient_clip_norm:
                 delta = delta / delta_norm * gradient_clip_norm
