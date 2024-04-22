@@ -5,7 +5,7 @@ import numpy as np
 import idx_file
 from model import Network
 from model import FullyConnected
-from model import Sigmoid, Softmax, ReLU
+from model import Sigmoid, Softmax, ReLU, Tanh
 
 
 def label_to_output(training_label):
@@ -43,7 +43,7 @@ training_data = training_data[:50000]
 # network = Network(
 #     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
 network = Network(
-    [FullyConnected(num_image_pixels, 100, activation=ReLU()), FullyConnected(100, 10, activation=Softmax())])
+    [FullyConnected(num_image_pixels, 100, activation=Tanh()), FullyConnected(100, 10, activation=Softmax())])
 # network = Network([num_image_pixels, 10])
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
 network.stochastic_gradient_descent(

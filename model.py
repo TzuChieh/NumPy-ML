@@ -32,7 +32,7 @@ class ActivationFunction(ABC):
     @abstractmethod
     def jacobian(self, z, **kwargs):
         """
-        @param The input vector.
+        @param z The input vector.
         @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return A matrix of all the function's first-order derivatives with respect to `z`. For example,
         the 1st row would be (da(z1)/dz1, da(z1)/dz2, ..., da(z1)/dzn),
@@ -154,6 +154,16 @@ class Softmax(ActivationFunction):
         a = kwargs['a'] if 'a' in kwargs else self.eval(z)
         dadz = np.diagflat(a) - np.outer(a, a)
         return dadz
+
+
+class Tanh(ActivationFunction):
+    def eval(self, z):
+        return np.tanh(z)
+
+    def jacobian(self, z, **kwargs):
+        a = kwargs['a'] if 'a' in kwargs else self.eval(z)
+        dadz = 1 - np.square(a)
+        return np.diagflat(dadz)
 
 
 class ReLU(ActivationFunction):
