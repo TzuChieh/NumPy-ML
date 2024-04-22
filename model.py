@@ -50,10 +50,8 @@ class ActivationFunction(ABC):
 
 
 class Layer(ABC):
-    def __init__(self, input_size, output_size):
+    def __init__(self):
         super().__init__()
-        self.input_size = input_size
-        self.output_size = output_size
 
     @property
     @abstractmethod
@@ -76,6 +74,22 @@ class Layer(ABC):
     def activation(self) -> ActivationFunction:
         """
         @return The activation function.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def input_dims(self) -> np_type.NDArray:
+        """
+        @return The dimensions of input in (number of inputs, height, width).
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def output_dims(self) -> np_type.NDArray:
+        """
+        @return The dimensions of output in (number of outputs, height, width).
         """
         pass
 
@@ -120,6 +134,30 @@ class Layer(ABC):
         @return The error vector for previous layer.
         """
         pass
+
+    @property
+    def input_shape(self) -> np_type.NDArray:
+        return self.input_dims[1:]
+    
+    @property
+    def num_inputs(self) -> int:
+        return self.input_dims[0]
+    
+    @property
+    def input_size(self) -> int:
+        return self.input_shape.prod()
+    
+    @property
+    def output_shape(self) -> np_type.NDArray:
+        return self.output_dims[1:]
+    
+    @property
+    def num_outputs(self) -> int:
+        return self.output_dims[0]
+    
+    @property
+    def output_size(self) -> int:
+        return self.output_shape.prod()
 
     def init_normal_params(self):
         """
@@ -244,12 +282,18 @@ class CrossEntropy(CostFunction):
 
 
 class FullyConnected(Layer):
-    def __init__(self, input_size, output_size, activation: ActivationFunction=Sigmoid()):
-        super().__init__(input_size, output_size)
+    def __init__(
+            self, 
+            input_dims: Iterable[int],
+            output_dims: Iterable[int], 
+            activation: ActivationFunction=Sigmoid()):
+        super().__init__()
+        self._input_dims = np.array(input_dims)
+        self._output_dims = np.array(output_dims)
         self._activation = activation
 
-        y = output_size
-        x = input_size
+        y = self.output_size
+        x = self.input_size
         self._bias = np.zeros((y, 1), dtype=real_type)
         self._weight = np.zeros((y, x), dtype=real_type)
 
@@ -267,11 +311,20 @@ class FullyConnected(Layer):
     def activation(self):
         return self._activation
     
+    @property
+    def input_dims(self):
+        return self._input_dims
+
+    @property
+    def output_dims(self):
+        return self._output_dims
+
     def weighted_input(self, input_a):
         x = input_a
         b = self._bias
         w = self._weight
-        return w @ x + b
+        z = w @ x + b
+        return z
     
     def update_params(self, bias, weight):
         assert self._bias.dtype == real_dtype
@@ -300,14 +353,21 @@ class FullyConnected(Layer):
 
 
 class Convolution(Layer):
-    def __init__(self, input_size, output_size, kernel_sizes, stride_sizes, activation: ActivationFunction=Sigmoid()):
-        super().__init__(input_size, output_size)
-        self._kernel_sizes = kernel_sizes
-        self._stride_sizes = stride_sizes
+    def __init__(
+            self, 
+            input_dims: Iterable[int],
+            kernel_shape: Iterable[int], 
+            stride_shape: Iterable[int], 
+            activation: ActivationFunction=Sigmoid()):
+        super().__init__()
+        self._input_dims = np.array(input_dims)
+        self._output_dims = np.floor_divide(np.subtract(input_dims[1:], kernel_shape[1:]), stride_shape) + 1
+        self._kernel_shape = kernel_shape
+        self._stride_shape = stride_shape
         self._activation = activation
 
-        ky = kernel_sizes[0]
-        kx = kernel_sizes[1]
+        ky = kernel_shape[0]
+        kx = kernel_shape[1]
         self._bias = np.float32(0)
         self._weight = np.zeros((ky, kx), dtype=real_type)
 
@@ -325,11 +385,32 @@ class Convolution(Layer):
     def activation(self):
         return self._activation
     
-    # def weighted_input(self, input_a):
-    #     x = input_a
-    #     b = self._bias
-    #     w = self._weight
-    #     return w @ x + b
+    @property
+    def input_dims(self):
+        return self._input_dims
+
+    @property
+    def output_dims(self):
+        return self._output_dims
+    
+    def weighted_input(self, input_a):
+        x = input_a
+        b = self._bias
+
+        # The definition of convolution is using a kernel in reversed order
+        k = np.flip(self._weight)
+
+        # Correlate the reversed kernel with input
+        k_h, k_w = self._kernel_shape[0:1]
+        s_h, s_w = self._stride_shape[0:1]
+        z = np.zeros(self.output_shape, dtype=real_type)
+        for iy in range(0, self.input_shape[0] - k_h + 1, s_h):
+            for ix in range(0, self.input_shape[1] - k_w + 1, s_w):
+                z[iy, ix] = (k * x[iy:iy + k_h, ix:ix + k_w]).sum()
+        z += b
+
+        assert np.array_equal(z.shape, self.output_shape)
+        return z.reshape((self.output_size, 1))
     
     def update_params(self, bias, weight):
         assert self._bias.dtype == real_dtype
@@ -348,9 +429,6 @@ class Convolution(Layer):
         @param kwargs 'z': weighted input from this layer (`input_a` will be ignored).
         """
         z = kwargs['z'] if 'z' in kwargs else self.weighted_input(input_a)
-
-        # TODO
-
         return self.activation.eval(z)
 
     # def backpropagate(self, delta):
@@ -358,6 +436,9 @@ class Convolution(Layer):
 
     #     w_T = self._weight.T
     #     return w_T @ delta
+    
+    def _dilate_delta(self, delta):
+        # TODO
 
 
 class Network:
@@ -550,9 +631,9 @@ class Network:
             layer = self.hidden_layers[layer_idx]
             next_layer = self.hidden_layers[layer_idx + 1]
             delta = next_layer.backpropagate(delta)
-            delta = self._gradient_clip(delta, gradient_clip_norm)
             dadz = layer.activation.jacobian(zs[layer_idx])
             delta = dadz.T @ delta
+            delta = self._gradient_clip(delta, gradient_clip_norm)
             del_bs[layer_idx], del_ws[layer_idx] = layer.derived_params(activations[layer_idx], delta)
 
         return (del_bs, del_ws)

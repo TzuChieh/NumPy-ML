@@ -43,7 +43,8 @@ training_data = training_data[:50000]
 # network = Network(
 #     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
 network = Network(
-    [FullyConnected(num_image_pixels, 100, activation=Tanh()), FullyConnected(100, 10, activation=Softmax())])
+    [FullyConnected([1, 1, num_image_pixels], [1, 1, 100], activation=Tanh()),
+     FullyConnected([1, 1, 100], [1, 1, 10], activation=Softmax())])
 # network = Network([num_image_pixels, 10])
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
 network.stochastic_gradient_descent(
