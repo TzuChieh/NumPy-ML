@@ -27,6 +27,37 @@ real_dtype = np.dtype(real_type)
 epsilon = real_type(1e-7)
 
 
+def correlate_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
+    return np.floor_divide(np.subtract(matrix_shape, kernel_shape), stride_shape) + 1
+
+def dilate_shape(matrix_shape, stride_shape, pad_shape=(0, 0)) -> np_type.NDArray:
+    outer_pad_amount = np.multiply(pad_shape, 2)
+    inner_pad_amount = np.subtract(matrix_shape, 1) * stride_shape
+    return outer_pad_amount + matrix_shape + inner_pad_amount
+
+def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0, 0)):
+    dilated_shape = dilate_shape(matrix.shape, stride_shape, pad_shape)
+    
+    i_offset = np.array(pad_shape)
+    i_step = np.array(stride_shape)
+    dilated_matrix = np.zeros(dilated_shape, dtype=real_type)
+    for i, d in np.ndenumerate(matrix):
+        i = i_offset + (0 if i[0] == 0 else i[0] * i_step[0], 0 if i[1] == 0 else i[1] * i_step[1])
+        dilated_matrix[i] = d
+    return dilated_matrix
+    
+def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1, 1)):
+    correlated_shape = correlate_shape(matrix.shape, kernel.shape, stride_shape)
+
+    k_h, k_w = (kernel.shape[0], kernel.shape[1])
+    s_h, s_w = (stride_shape[0], stride_shape[1])
+    correlated_matrix = np.zeros(correlated_shape, dtype=real_type)
+    for my, cy in zip(range(0, matrix.shape[0] - k_h + 1, s_h), range(correlate_shape[0])):
+        for mx, cx in zip(range(0, matrix.shape[1] - k_w + 1, s_w), range(correlate_shape[1])):
+            correlated_matrix[cy, cx] = (kernel * matrix[my:my + k_h, mx:mx + k_w]).sum()
+    return correlated_matrix
+
+
 class ActivationFunction(ABC):
     @abstractmethod
     def eval(self, z):
@@ -94,15 +125,15 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def weighted_input(self, input_a):
+    def weighted_input(self, x: np_type.NDArray):
         """
-        @param input_a The input activation vector.
+        @param x The input activation vector.
         @return The weighted input vector (z).
         """
         pass
 
     @abstractmethod
-    def update_params(self, bias, weight):
+    def update_params(self, bias: np_type.NDArray, weight: np_type.NDArray):
         """
         @param bias The new bias vector.
         @param weight The new weight matrix.
@@ -110,25 +141,25 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def derived_params(self, input_a, delta):
+    def derived_params(self, x: np_type.NDArray, delta: np_type.NDArray):
         """
-        @param input_a The input activation vector.
+        @param x The input activation vector.
         @param delta The error vector.
         @return Gradient of biase and weight in the form `(del_b, del_w)`.
         """
         pass
 
     @abstractmethod
-    def feedforward(self, input_a, **kwargs):
+    def feedforward(self, x: np_type.NDArray, **kwargs):
         """
-        @param input_a The input activation vector.
+        @param x The input activation vector.
         @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return Activation vector of the layer.
         """
         pass
 
     @abstractmethod
-    def backpropagate(self, delta):
+    def backpropagate(self, delta: np_type.NDArray):
         """
         @param delta The error vector.
         @return The error vector for previous layer.
@@ -319,40 +350,44 @@ class FullyConnected(Layer):
     def output_dims(self):
         return self._output_dims
 
-    def weighted_input(self, input_a):
-        x = input_a
+    def weighted_input(self, x):
         b = self._bias
         w = self._weight
         z = w @ x + b
         return z
     
     def update_params(self, bias, weight):
-        assert self._bias.dtype == real_dtype
-        assert self._weight.dtype == real_dtype
+        assert self._bias.dtype == real_dtype, f"{self._bias.dtype}"
+        assert self._weight.dtype == real_dtype, f"{self._weight.dtype}"
 
         self._bias = bias
         self._weight = weight
 
-    def derived_params(self, input_a, delta):
+    def derived_params(self, x, delta):
         del_b = np.copy(delta)
-        del_w = delta @ input_a.T
+        del_w = delta @ x.T
         return (del_b, del_w)
 
-    def feedforward(self, input_a, **kwargs):
+    def feedforward(self, x, **kwargs):
         """
-        @param kwargs 'z': weighted input from this layer (`input_a` will be ignored).
+        @param kwargs 'z': weighted input from this layer (`x` will be ignored).
         """
-        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(input_a)
+        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
         return self.activation.eval(z)
 
     def backpropagate(self, delta):
-        assert delta.dtype == real_dtype
+        assert delta.dtype == real_dtype, f"{delta.dtype}"
 
-        w_T = self._weight.T
-        return w_T @ delta
+        dCda = self._weight.T @ delta
+        return dCda
 
 
 class Convolution(Layer):
+    """
+    Note that the definition of convolution is correlating a kernel in reversed order, but in the field of ML
+    I noticed that almost all the sources that I could find uses correlation instead. So here follows the same
+    convention, namely, using correlation in the forward pass.
+    """
     def __init__(
             self, 
             input_dims: Iterable[int],
@@ -361,7 +396,7 @@ class Convolution(Layer):
             activation: ActivationFunction=Sigmoid()):
         super().__init__()
         self._input_dims = np.array(input_dims)
-        self._output_dims = np.floor_divide(np.subtract(input_dims[1:], kernel_shape[1:]), stride_shape) + 1
+        self._output_dims = np.append(input_dims[0], correlate_shape(input_dims[1:], kernel_shape[1:], stride_shape))
         self._kernel_shape = kernel_shape
         self._stride_shape = stride_shape
         self._activation = activation
@@ -393,52 +428,52 @@ class Convolution(Layer):
     def output_dims(self):
         return self._output_dims
     
-    def weighted_input(self, input_a):
-        x = input_a
+    def weighted_input(self, x):
+        x = x.reshape(self.input_shape)
         b = self._bias
+        k = self._weight
 
-        # The definition of convolution is using a kernel in reversed order
-        k = np.flip(self._weight)
-
-        # Correlate the reversed kernel with input
-        k_h, k_w = self._kernel_shape[0:1]
-        s_h, s_w = self._stride_shape[0:1]
-        z = np.zeros(self.output_shape, dtype=real_type)
-        for iy in range(0, self.input_shape[0] - k_h + 1, s_h):
-            for ix in range(0, self.input_shape[1] - k_w + 1, s_w):
-                z[iy, ix] = (k * x[iy:iy + k_h, ix:ix + k_w]).sum()
+        z = correlate(x, k, self._stride_shape)
         z += b
 
-        assert np.array_equal(z.shape, self.output_shape)
+        assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
         return z.reshape((self.output_size, 1))
     
     def update_params(self, bias, weight):
-        assert self._bias.dtype == real_dtype
-        assert self._weight.dtype == real_dtype
+        assert self._bias.dtype == real_dtype, f"{self._bias.dtype}"
+        assert self._weight.dtype == real_dtype, f"{self._weight.dtype}"
 
         self._bias = bias
         self._weight = weight
 
-    # def derived_params(self, input_a, delta):
-    #     del_b = np.copy(delta)
-    #     del_w = delta @ input_a.T
-    #     return (del_b, del_w)
+    def derived_params(self, x, delta):
+        del_b = np.sum(delta, dtype=np.float32)
 
-    def feedforward(self, input_a, **kwargs):
+        # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
+        delta = dilate(delta.reshape(self.output_shape), self._stride_shape)
+        del_w = correlate(x.reshape(self.input_shape), delta, stride_shape=(1, 1))
+
+        assert np.array_equal(del_w.shape, self._weight.shape), f"shapes: {del_w.shape}, {self._weight.shape}"
+        return (del_b, del_w)
+
+    def feedforward(self, x, **kwargs):
         """
-        @param kwargs 'z': weighted input from this layer (`input_a` will be ignored).
+        @param kwargs 'z': weighted input from this layer (`x` will be ignored).
         """
-        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(input_a)
+        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
         return self.activation.eval(z)
 
-    # def backpropagate(self, delta):
-    #     assert delta.dtype == real_dtype
+    def backpropagate(self, delta):
+        assert delta.dtype == real_dtype, f"{delta.dtype}"
 
-    #     w_T = self._weight.T
-    #     return w_T @ delta
-    
-    def _dilate_delta(self, delta):
-        # TODO
+        # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with
+        # a reversed kernel
+        k = np.flip(self._weight)
+        delta = dilate(delta.reshape(self.output_shape), self._stride_shape, pad_shape=np.subtract(k.shape, 1))
+        dCda = correlate(delta, k, stride_shape=(1, 1))
+
+        assert np.array_equal(dCda.shape, self.input_shape), f"shapes: {dCda.shape}, {self.input_shape}"
+        return dCda.reshape((self.input_size, 1))
 
 
 class Network:
