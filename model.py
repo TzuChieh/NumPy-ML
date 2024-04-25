@@ -28,34 +28,70 @@ epsilon = real_type(1e-7)
 
 
 def correlate_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
-    return np.floor_divide(np.subtract(matrix_shape, kernel_shape), stride_shape) + 1
+    """
+    Given the shapes, computes the resulting shape after the correlation. Will compute using only the last 2
+    dimemsions and broadcast the rest.
+    @param kernel_shape Kernel dimensions in 2-D.
+    @param stride_shape Stride dimensions in 2-D.
+    """
+    correlate_size = np.floor_divide(np.subtract(matrix_shape[-2:], kernel_shape), stride_shape) + 1
+    return (*matrix_shape[:-2], *correlate_size)
 
 def dilate_shape(matrix_shape, stride_shape, pad_shape=(0, 0)) -> np_type.NDArray:
-    outer_pad_amount = np.multiply(pad_shape, 2)
-    inner_pad_amount = np.subtract(matrix_shape, 1) * stride_shape
-    return outer_pad_amount + matrix_shape + inner_pad_amount
+    """
+    Given the shapes, computes the resulting shape after the dilation. Will compute using only the last 2
+    dimemsions and broadcast the rest.
+    @param stride_shape Stride dimensions in 2-D.
+    @param pad_shape Pad dimensions in 2-D.
+    """
+    skirt_size = np.multiply(pad_shape, 2)
+    dilate_size = np.subtract(matrix_shape[-2:], 1) * stride_shape + 1
+    return (*matrix_shape[:-2], *(skirt_size + dilate_size)) 
 
 def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0, 0)):
+    """
+    Dilate the matrix according to the specified shapes. Will compute using only the last 2
+    dimemsions and broadcast the rest.
+    @param stride_shape Stride dimensions in 2-D.
+    @param pad_shape Pad dimensions in 2-D.
+    """
     dilated_shape = dilate_shape(matrix.shape, stride_shape, pad_shape)
     
-    i_offset = np.array(pad_shape)
-    i_step = np.array(stride_shape)
+    # Create slice into the dilated matrix so we can assign `matrix` without looping
+    pad = np.array(pad_shape)
+    size = np.array(dilated_shape[-2:])
+    step = np.array(stride_shape)
+    slices = tuple(slice(pd, sz - pd, st) for pd, sz, st in zip(pad, size, step))
+
     dilated_matrix = np.zeros(dilated_shape, dtype=real_type)
-    for i, d in np.ndenumerate(matrix):
-        i = i_offset + (0 if i[0] == 0 else i[0] * i_step[0], 0 if i[1] == 0 else i[1] * i_step[1])
-        dilated_matrix[i] = d
+    dilated_matrix[..., *slices] = matrix
     return dilated_matrix
     
 def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1, 1)):
-    correlated_shape = correlate_shape(matrix.shape, kernel.shape, stride_shape)
+    """
+    Correlate the matrix according to the specified shapes. Will compute using only the last 2
+    dimemsions and broadcast the rest.
+    @param kernel The kernel to correlate with, in 2-D.
+    @param stride_shape Stride dimensions in 2-D.
+    """
+    assert matrix.dtype == kernel.dtype, f"types: {matrix.dtype}, {kernel.dtype}"
 
-    k_h, k_w = (kernel.shape[0], kernel.shape[1])
-    s_h, s_w = (stride_shape[0], stride_shape[1])
-    correlated_matrix = np.zeros(correlated_shape, dtype=real_type)
-    for my, cy in zip(range(0, matrix.shape[0] - k_h + 1, s_h), range(correlate_shape[0])):
-        for mx, cx in zip(range(0, matrix.shape[1] - k_w + 1, s_w), range(correlate_shape[1])):
-            correlated_matrix[cy, cx] = (kernel * matrix[my:my + k_h, mx:mx + k_w]).sum()
-    return correlated_matrix
+    correlated_shape = correlate_shape(matrix.shape, kernel.shape, stride_shape)
+    
+    view_shape = (
+        *correlated_shape[:-2],
+        *correlated_shape[-2:],
+        *kernel.shape)
+    view_stride = (
+        *matrix.strides[:-2],
+        stride_shape[-2] * matrix.strides[-2],
+        stride_shape[-1] * matrix.strides[-1],
+        *matrix.strides[-2:])
+    strided_view = np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=False)
+    correlated = np.einsum('...yxhw,hw->...yx', strided_view, kernel)
+
+    assert np.array_equal(correlated.shape, correlated_shape), f"shapes: {correlated.shape}, {correlated_shape}"
+    return correlated
 
 
 class ActivationFunction(ABC):
@@ -112,7 +148,7 @@ class Layer(ABC):
     @abstractmethod
     def input_dims(self) -> np_type.NDArray:
         """
-        @return The dimensions of input in (number of inputs, height, width).
+        @return The dimensions of input in (number of channels, height, width).
         """
         pass
 
@@ -120,7 +156,7 @@ class Layer(ABC):
     @abstractmethod
     def output_dims(self) -> np_type.NDArray:
         """
-        @return The dimensions of output in (number of outputs, height, width).
+        @return The dimensions of output in (number of channels, height, width).
         """
         pass
 
@@ -391,20 +427,25 @@ class Convolution(Layer):
     def __init__(
             self, 
             input_dims: Iterable[int],
+            num_features: int,
             kernel_shape: Iterable[int], 
             stride_shape: Iterable[int], 
             activation: ActivationFunction=Sigmoid()):
         super().__init__()
+
+        num_channels = input_dims[0]
+        num_kernels = num_channels * num_features
         self._input_dims = np.array(input_dims)
-        self._output_dims = np.append(input_dims[0], correlate_shape(input_dims[1:], kernel_shape[1:], stride_shape))
+        self._output_dims = np.append(num_kernels, correlate_shape(input_dims[1:], kernel_shape[1:], stride_shape))
+        self._num_kernels = num_kernels
         self._kernel_shape = kernel_shape
         self._stride_shape = stride_shape
         self._activation = activation
 
         ky = kernel_shape[0]
         kx = kernel_shape[1]
-        self._bias = np.float32(0)
-        self._weight = np.zeros((ky, kx), dtype=real_type)
+        self._bias = np.zeros((num_features, 1), dtype=real_dtype)
+        self._weight = np.zeros((num_features, num_channels, ky, kx), dtype=real_type)
 
         self.init_scaled_normal_params()
 
