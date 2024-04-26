@@ -1,6 +1,6 @@
-# MNIST-training
+# Numpy-ML
 
-This is my testground for the basics of neural networks. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). This project is inspired by a collection of resources that I found useful on the Internet:
+This is my testground for the basics of machine learning. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). This project is inspired by a collection of resources that I found useful on the Internet:
 
 * Michael Nielsen's [Neural Networks and Deep Learning](http://neuralnetworksanddeeplearning.com/)
 * Yani Ioannou's blog posts for deriving [single-layer backpropagation](https://blog.yani.ai/deltarule/) and [multi-layer backpropagation](https://blog.yani.ai/backpropagation/)
@@ -23,4 +23,4 @@ As mentioned earlier, the only required third-party library is Numpy. Additional
 
 ## Database
 
-The dataset for training and evaluation are obtained from [Yann LeCun's MNIST page](http://yann.lecun.com/exdb/mnist/).
+The MNIST dataset for training and evaluation of handwritten digits are obtained from [Yann LeCun's MNIST page](http://yann.lecun.com/exdb/mnist/).

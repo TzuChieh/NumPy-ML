@@ -4,6 +4,11 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 """
 
 
+import vector as vec
+
+import numpy as np
+import numpy.typing as np_type
+
 import random
 import warnings
 import sys
@@ -11,9 +16,6 @@ from abc import ABC, abstractmethod
 from typing import Iterable
 from timeit import default_timer as timer
 from datetime import timedelta
-
-import numpy as np
-import numpy.typing as np_type
     
 
 # Type of the numbers used for calculation. Note that `real_type` can be used for both contructing scalars or for
@@ -25,73 +27,6 @@ real_dtype = np.dtype(real_type)
 # An approximative value of machine epsilon, which is useful in avoiding some numerical issues such as division
 # by zero. Keras also uses this value, see https://github.com/tensorflow/tensorflow/blob/066e226b3ed6db054cdb5ed0ff2453b8c1ffb3f6/tensorflow/python/keras/backend_config.py#L24
 epsilon = real_type(1e-7)
-
-
-def correlate_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
-    """
-    Given the shapes, computes the resulting shape after the correlation. Will compute with the last 2 dimemsions
-    (broadcast the rest).
-    @param kernel_shape Kernel dimensions.
-    @param stride_shape Stride dimensions in 2-D.
-    """
-    correlate_size = np.floor_divide(np.subtract(matrix_shape[-2:], kernel_shape[-2:]), stride_shape) + 1
-    return (*matrix_shape[:-2], *correlate_size)
-
-def dilate_shape(matrix_shape, stride_shape, pad_shape=(0, 0)) -> np_type.NDArray:
-    """
-    Given the shapes, computes the resulting shape after the dilation. Will compute with the last 2 dimemsions
-    (broadcast the rest).
-    @param stride_shape Stride dimensions in 2-D.
-    @param pad_shape Pad dimensions in 2-D.
-    """
-    skirt_size = np.multiply(pad_shape, 2)
-    dilate_size = np.subtract(matrix_shape[-2:], 1) * stride_shape + 1
-    return (*matrix_shape[:-2], *(skirt_size + dilate_size)) 
-
-def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0, 0)):
-    """
-    Dilate the matrix according to the specified shapes. Will compute with the last 2 dimemsions
-    (broadcast the rest).
-    @param stride_shape Stride dimensions in 2-D.
-    @param pad_shape Pad dimensions in 2-D.
-    """
-    dilated_shape = dilate_shape(matrix.shape, stride_shape, pad_shape)
-    
-    # Create slice into the dilated matrix so we can assign `matrix` without looping
-    pad = np.array(pad_shape)
-    size = np.array(dilated_shape[-2:])
-    step = np.array(stride_shape)
-    slices = tuple(slice(pd, sz - pd, st) for pd, sz, st in zip(pad, size, step))
-
-    dilated_matrix = np.zeros(dilated_shape, dtype=real_type)
-    dilated_matrix[..., *slices] = matrix
-    return dilated_matrix
-    
-def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1, 1)):
-    """
-    Correlate the matrix according to the specified shapes. Will compute with the last 2 dimemsions
-    (broadcast the rest).
-    @param kernel The kernel to correlate with.
-    @param stride_shape Stride dimensions in 2-D.
-    """
-    assert matrix.dtype == kernel.dtype, f"types: {matrix.dtype}, {kernel.dtype}"
-
-    correlated_shape = correlate_shape(matrix.shape, kernel.shape, stride_shape)
-    
-    view_shape = (
-        *correlated_shape[:-2],
-        *correlated_shape[-2:],
-        *kernel.shape[-2:])
-    view_stride = (
-        *matrix.strides[:-2],
-        stride_shape[-2] * matrix.strides[-2],
-        stride_shape[-1] * matrix.strides[-1],
-        *matrix.strides[-2:])
-    strided_view = np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=False)
-    correlated = np.einsum('...yxhw,...hw->...yx', strided_view, kernel)
-
-    assert np.array_equal(correlated.shape, correlated_shape), f"shapes: {correlated.shape}, {correlated_shape}"
-    return correlated
 
 
 class ActivationFunction(ABC):
@@ -184,7 +119,7 @@ class Layer(ABC):
     def derived_params(self, x: np_type.NDArray, delta: np_type.NDArray):
         """
         @param x The input activation vector.
-        @param delta The error vector.
+        @param delta The error vector (dCdz).
         @return Gradient of `bias` and `weight` in the form `(del_b, del_w)`.
         """
         pass
@@ -201,8 +136,8 @@ class Layer(ABC):
     @abstractmethod
     def backpropagate(self, delta: np_type.NDArray):
         """
-        @param delta The error vector.
-        @return The error vector for previous layer.
+        @param delta The error vector (dCdz).
+        @return The error vector (dCdx).
         """
         pass
 
@@ -273,9 +208,9 @@ class Sigmoid(ActivationFunction):
 class Softmax(ActivationFunction):
     def eval(self, z):
         # Improves numerical stability (does not change the result--will cancel out in the division)
-        z = z - np.max(z, axis=0, keepdims=True)
+        z = z - np.max(z, axis=-2, keepdims=True)
         e_z = np.exp(z)
-        a = e_z / np.sum(e_z, axis=0, keepdims=True)
+        a = e_z / np.sum(e_z, axis=-2, keepdims=True)
         return a
     
     def jacobian(self, z, **kwargs):
@@ -400,12 +335,13 @@ class FullyConnected(Layer):
 
     def derived_params(self, x, delta):
         del_b = np.copy(delta)
-        del_w = delta @ x.T
+        x_T = vec.transpose_2d(x)
+        del_w = delta @ x_T
         return (del_b, del_w)
 
     def feedforward(self, x, **kwargs):
         """
-        @param kwargs 'z': weighted input from this layer (`x` will be ignored).
+        @param kwargs 'z': `weighted_input` of this layer (`x` will be ignored).
         """
         z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
         return self.activation.eval(z)
@@ -430,17 +366,20 @@ class Convolution(Layer):
         stride_shape: Iterable[int], 
         activation: ActivationFunction=Sigmoid()):
         """
-        @param kernel_shape Kernel dimensions, in (..., height, width).
+        @param kernel_shape Kernel dimensions, in (number of features, height, width).
         @param stride_shape Stride dimensions in 2-D.
         """
         super().__init__()
         
+        output_shape = vec.correlate_shape(input_shape, kernel_shape, stride_shape)
+        output_shape[-3] *= kernel_shape[0]
+
         self._input_shape = np.array(input_shape)
-        self._output_shape = np.array(correlate_shape(input_shape, kernel_shape, stride_shape))
+        self._output_shape = np.array(output_shape)
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
-        self._bias = np.zeros((*kernel_shape[:-2], 1, 1), dtype=real_dtype)
+        self._bias = np.zeros((kernel_shape[0], 1, 1), dtype=real_dtype)
         self._weight = np.zeros(kernel_shape, dtype=real_type)
 
         self.init_scaled_normal_params()
@@ -470,7 +409,7 @@ class Convolution(Layer):
         b = self._bias
         k = self._weight
 
-        z = correlate(x, k, self._stride_shape)
+        z = vec.correlate(x, k, self._stride_shape)
         z += b
 
         assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
@@ -481,18 +420,21 @@ class Convolution(Layer):
         self._weight = weight.reshape(self._weight.shape)
 
     def derived_params(self, x, delta):
-        del_b = np.sum(delta, dtype=np.float32)
+        x = x.reshape(self.input_shape)
+        delta = delta.reshape(self.output_shape)
+
+        del_b = delta.sum(axis=(-2, -1), keepdims=True, dtype=real_type)
 
         # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
-        delta = dilate(delta.reshape(self.output_shape), self._stride_shape)
-        del_w = correlate(x.reshape(self.input_shape), delta, stride_shape=(1, 1))
+        dilated_delta = vec.dilate(delta, self._stride_shape)
+        del_w = vec.correlate(x, dilated_delta, stride_shape=(1, 1))
 
         assert np.array_equal(del_w.shape, self._weight.shape), f"shapes: {del_w.shape}, {self._weight.shape}"
         return (del_b, del_w)
 
     def feedforward(self, x, **kwargs):
         """
-        @param kwargs 'z': weighted input from this layer (`x` will be ignored).
+        @param kwargs 'z': `weighted_input` of this layer (`x` will be ignored).
         """
         z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
         return self.activation.eval(z)
@@ -500,14 +442,17 @@ class Convolution(Layer):
     def backpropagate(self, delta):
         assert delta.dtype == real_dtype, f"{delta.dtype}"
 
+        delta = delta.reshape(self.output_shape)
+
         # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with
         # a reversed kernel
         k = np.flip(self._weight)
-        delta = dilate(delta.reshape(self.output_shape), self._stride_shape, pad_shape=np.subtract(k.shape, 1))
-        dCda = correlate(delta, k, stride_shape=(1, 1))
+        pad_shape = np.subtract(k.shape[-2:], 1)
+        dilated_delta = dilate(delta, self._stride_shape, pad_shape=pad_shape)
+        dCda = correlate(dilated_delta, k, stride_shape=(1, 1))
 
         assert np.array_equal(dCda.shape, self.input_shape), f"shapes: {dCda.shape}, {self.input_shape}"
-        return dCda.reshape((self.input_size, 1))
+        return dCda.reshape(self.input_vector_shape)
 
 
 class Network:
