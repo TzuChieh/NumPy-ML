@@ -29,18 +29,18 @@ epsilon = real_type(1e-7)
 
 def correlate_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
     """
-    Given the shapes, computes the resulting shape after the correlation. Will compute using only the last 2
-    dimemsions and broadcast the rest.
-    @param kernel_shape Kernel dimensions in 2-D.
+    Given the shapes, computes the resulting shape after the correlation. Will compute with the last 2 dimemsions
+    (broadcast the rest).
+    @param kernel_shape Kernel dimensions.
     @param stride_shape Stride dimensions in 2-D.
     """
-    correlate_size = np.floor_divide(np.subtract(matrix_shape[-2:], kernel_shape), stride_shape) + 1
+    correlate_size = np.floor_divide(np.subtract(matrix_shape[-2:], kernel_shape[-2:]), stride_shape) + 1
     return (*matrix_shape[:-2], *correlate_size)
 
 def dilate_shape(matrix_shape, stride_shape, pad_shape=(0, 0)) -> np_type.NDArray:
     """
-    Given the shapes, computes the resulting shape after the dilation. Will compute using only the last 2
-    dimemsions and broadcast the rest.
+    Given the shapes, computes the resulting shape after the dilation. Will compute with the last 2 dimemsions
+    (broadcast the rest).
     @param stride_shape Stride dimensions in 2-D.
     @param pad_shape Pad dimensions in 2-D.
     """
@@ -50,8 +50,8 @@ def dilate_shape(matrix_shape, stride_shape, pad_shape=(0, 0)) -> np_type.NDArra
 
 def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0, 0)):
     """
-    Dilate the matrix according to the specified shapes. Will compute using only the last 2
-    dimemsions and broadcast the rest.
+    Dilate the matrix according to the specified shapes. Will compute with the last 2 dimemsions
+    (broadcast the rest).
     @param stride_shape Stride dimensions in 2-D.
     @param pad_shape Pad dimensions in 2-D.
     """
@@ -69,9 +69,9 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0, 0)):
     
 def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1, 1)):
     """
-    Correlate the matrix according to the specified shapes. Will compute using only the last 2
-    dimemsions and broadcast the rest.
-    @param kernel The kernel to correlate with, in 2-D.
+    Correlate the matrix according to the specified shapes. Will compute with the last 2 dimemsions
+    (broadcast the rest).
+    @param kernel The kernel to correlate with.
     @param stride_shape Stride dimensions in 2-D.
     """
     assert matrix.dtype == kernel.dtype, f"types: {matrix.dtype}, {kernel.dtype}"
@@ -81,14 +81,14 @@ def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,
     view_shape = (
         *correlated_shape[:-2],
         *correlated_shape[-2:],
-        *kernel.shape)
+        *kernel.shape[-2:])
     view_stride = (
         *matrix.strides[:-2],
         stride_shape[-2] * matrix.strides[-2],
         stride_shape[-1] * matrix.strides[-1],
         *matrix.strides[-2:])
     strided_view = np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=False)
-    correlated = np.einsum('...yxhw,hw->...yx', strided_view, kernel)
+    correlated = np.einsum('...yxhw,...hw->...yx', strided_view, kernel)
 
     assert np.array_equal(correlated.shape, correlated_shape), f"shapes: {correlated.shape}, {correlated_shape}"
     return correlated
@@ -117,6 +117,10 @@ class ActivationFunction(ABC):
 
 
 class Layer(ABC):
+    """
+    Abstraction for a single layer in a neural network. Parameters should be of the defined shape (e.g., a vector)
+    in the lowest dimensions, and be broadcastable to higher dimensions.
+    """
     def __init__(self):
         super().__init__()
 
@@ -124,7 +128,7 @@ class Layer(ABC):
     @abstractmethod
     def bias(self) -> np_type.NDArray:
         """
-        @return The bias vector.
+        @return The bias parameters.
         """
         pass
 
@@ -132,7 +136,7 @@ class Layer(ABC):
     @abstractmethod
     def weight(self) -> np_type.NDArray:
         """
-        @return The weight matrix.
+        @return The weight parameters.
         """
         pass
 
@@ -146,17 +150,17 @@ class Layer(ABC):
 
     @property
     @abstractmethod
-    def input_dims(self) -> np_type.NDArray:
+    def input_shape(self) -> np_type.NDArray:
         """
-        @return The dimensions of input in (number of channels, height, width).
+        @return The dimensions of input in (..., number of channels, height, width).
         """
         pass
 
     @property
     @abstractmethod
-    def output_dims(self) -> np_type.NDArray:
+    def output_shape(self) -> np_type.NDArray:
         """
-        @return The dimensions of output in (number of channels, height, width).
+        @return The dimensions of output in (..., number of channels, height, width).
         """
         pass
 
@@ -171,8 +175,8 @@ class Layer(ABC):
     @abstractmethod
     def update_params(self, bias: np_type.NDArray, weight: np_type.NDArray):
         """
-        @param bias The new bias vector.
-        @param weight The new weight matrix.
+        @param bias The new bias parameters.
+        @param weight The new weight parameters.
         """
         pass
 
@@ -181,7 +185,7 @@ class Layer(ABC):
         """
         @param x The input activation vector.
         @param delta The error vector.
-        @return Gradient of biase and weight in the form `(del_b, del_w)`.
+        @return Gradient of `bias` and `weight` in the form `(del_b, del_w)`.
         """
         pass
 
@@ -203,28 +207,18 @@ class Layer(ABC):
         pass
 
     @property
-    def input_shape(self) -> np_type.NDArray:
-        return self.input_dims[1:]
-    
+    def input_vector_shape(self) -> np_type.NDArray:
+        """
+        @return A compatible `input_shape` in the form of vector.
+        """
+        return (*self.input_shape[:-2], self.input_shape[-2:].prod(), 1)
+
     @property
-    def num_inputs(self) -> int:
-        return self.input_dims[0]
-    
-    @property
-    def input_size(self) -> int:
-        return self.input_shape.prod()
-    
-    @property
-    def output_shape(self) -> np_type.NDArray:
-        return self.output_dims[1:]
-    
-    @property
-    def num_outputs(self) -> int:
-        return self.output_dims[0]
-    
-    @property
-    def output_size(self) -> int:
-        return self.output_shape.prod()
+    def output_vector_shape(self) -> np_type.NDArray:
+        """
+        @return A compatible `output_shape` in the form of vector.
+        """
+        return (*self.output_shape[:-2], self.output_shape[-2:].prod(), 1)
 
     def init_normal_params(self):
         """
@@ -240,8 +234,9 @@ class Layer(ABC):
         Scaled (weights) version of `init_normal_params()`. In theory works better for sigmoid and tanh neurons.
         """
         rng = np.random.default_rng()
+        nx = self.input_vector_shape[-2]
         b = rng.standard_normal(self.bias.shape, dtype=real_type)
-        w = rng.standard_normal(self.weight.shape, dtype=real_type) / np.sqrt(self.input_size, dtype=real_type)
+        w = rng.standard_normal(self.weight.shape, dtype=real_type) / np.sqrt(nx, dtype=real_type)
         self.update_params(b, w)
 
 
@@ -350,19 +345,23 @@ class CrossEntropy(CostFunction):
 
 class FullyConnected(Layer):
     def __init__(
-            self, 
-            input_dims: Iterable[int],
-            output_dims: Iterable[int], 
-            activation: ActivationFunction=Sigmoid()):
+        self, 
+        input_shape: Iterable[int],
+        output_shape: Iterable[int], 
+        activation: ActivationFunction=Sigmoid()):
+        """
+        @param input_shape Input dimensions, in (..., height, width).
+        @param output_shape Output dimensions, in (..., height, width).
+        """
         super().__init__()
-        self._input_dims = np.array(input_dims)
-        self._output_dims = np.array(output_dims)
+        self._input_shape = np.array(input_shape)
+        self._output_shape = np.array(output_shape)
         self._activation = activation
 
-        y = self.output_size
-        x = self.input_size
-        self._bias = np.zeros((y, 1), dtype=real_type)
-        self._weight = np.zeros((y, x), dtype=real_type)
+        ny = self.output_vector_shape[-2]
+        nx = self.input_vector_shape[-2]
+        self._bias = np.zeros((ny, 1), dtype=real_type)
+        self._weight = np.zeros((ny, nx), dtype=real_type)
 
         self.init_scaled_normal_params()
 
@@ -379,12 +378,12 @@ class FullyConnected(Layer):
         return self._activation
     
     @property
-    def input_dims(self):
-        return self._input_dims
+    def input_shape(self):
+        return self._input_shape
 
     @property
-    def output_dims(self):
-        return self._output_dims
+    def output_shape(self):
+        return self._output_shape
 
     def weighted_input(self, x):
         b = self._bias
@@ -425,27 +424,24 @@ class Convolution(Layer):
     convention, namely, using correlation in the forward pass.
     """
     def __init__(
-            self, 
-            input_dims: Iterable[int],
-            num_features: int,
-            kernel_shape: Iterable[int], 
-            stride_shape: Iterable[int], 
-            activation: ActivationFunction=Sigmoid()):
+        self, 
+        input_shape: Iterable[int],
+        kernel_shape: Iterable[int], 
+        stride_shape: Iterable[int], 
+        activation: ActivationFunction=Sigmoid()):
+        """
+        @param kernel_shape Kernel dimensions, in (..., height, width).
+        @param stride_shape Stride dimensions in 2-D.
+        """
         super().__init__()
-
-        num_channels = input_dims[0]
-        num_kernels = num_channels * num_features
-        self._input_dims = np.array(input_dims)
-        self._output_dims = np.append(num_kernels, correlate_shape(input_dims[1:], kernel_shape[1:], stride_shape))
-        self._num_kernels = num_kernels
-        self._kernel_shape = kernel_shape
-        self._stride_shape = stride_shape
+        
+        self._input_shape = np.array(input_shape)
+        self._output_shape = np.array(correlate_shape(input_shape, kernel_shape, stride_shape))
+        self._kernel_shape = np.array(kernel_shape)
+        self._stride_shape = np.array(stride_shape)
         self._activation = activation
-
-        ky = kernel_shape[0]
-        kx = kernel_shape[1]
-        self._bias = np.zeros((num_features, 1), dtype=real_dtype)
-        self._weight = np.zeros((num_features, num_channels, ky, kx), dtype=real_type)
+        self._bias = np.zeros((*kernel_shape[:-2], 1, 1), dtype=real_dtype)
+        self._weight = np.zeros(kernel_shape, dtype=real_type)
 
         self.init_scaled_normal_params()
 
@@ -462,12 +458,12 @@ class Convolution(Layer):
         return self._activation
     
     @property
-    def input_dims(self):
-        return self._input_dims
+    def input_shape(self):
+        return self._input_shape
 
     @property
-    def output_dims(self):
-        return self._output_dims
+    def output_shape(self):
+        return self._output_shape
     
     def weighted_input(self, x):
         x = x.reshape(self.input_shape)
@@ -478,14 +474,11 @@ class Convolution(Layer):
         z += b
 
         assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
-        return z.reshape((self.output_size, 1))
+        return z.reshape(self.output_vector_shape)
     
     def update_params(self, bias, weight):
-        assert self._bias.dtype == real_dtype, f"{self._bias.dtype}"
-        assert self._weight.dtype == real_dtype, f"{self._weight.dtype}"
-
-        self._bias = bias
-        self._weight = weight
+        self._bias = bias.reshape(self._bias.shape)
+        self._weight = weight.reshape(self._weight.shape)
 
     def derived_params(self, x, delta):
         del_b = np.sum(delta, dtype=np.float32)
