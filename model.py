@@ -381,7 +381,7 @@ class Convolution(Layer):
         self, 
         input_shape: Iterable[int],
         kernel_shape: Iterable[int], 
-        stride_shape: Iterable[int]=(1, 1), 
+        stride_shape: Iterable[int]=(1,), 
         activation: ActivationFunction=Sigmoid()):
         """
         @param kernel_shape Kernel dimensions, in (number of features, height, width).
@@ -441,11 +441,12 @@ class Convolution(Layer):
         x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)
 
-        del_b = delta.sum(axis=(-2, -1), keepdims=True, dtype=real_type)
+        sum_axes = tuple(di for di in range(-len(self._kernel_shape), 0))
+        del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=real_type)
 
         # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
         dilated_delta = vec.dilate(delta, self._stride_shape)
-        del_w = vec.correlate(x, dilated_delta, stride_shape=(1, 1))
+        del_w = vec.correlate(x, dilated_delta)
 
         assert np.array_equal(del_w.shape, self._weight.shape), f"shapes: {del_w.shape}, {self._weight.shape}"
         return (del_b, del_w)
@@ -465,16 +466,16 @@ class Convolution(Layer):
         # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with
         # a reversed kernel
         k = np.flip(self._weight)
-        pad_shape = np.subtract(k.shape[-2:], 1)
+        pad_shape = np.subtract(k.shape, 1)
         dilated_delta = vec.dilate(delta, self._stride_shape, pad_shape=pad_shape)
-        dCda = vec.correlate(dilated_delta, k, stride_shape=(1, 1))
+        dCda = vec.correlate(dilated_delta, k)
 
         assert np.array_equal(dCda.shape, self.input_shape), f"shapes: {dCda.shape}, {self.input_shape}"
         return dCda.reshape(self.input_vector_shape)
     
     def __str__(self):
-        k_h, k_w = self._kernel_shape[-2:]
-        return f"{k_h}x{k_w} convolution: {self.input_shape} -> {self.output_shape} ({self.num_params})"
+        kernel_info = "x".join(str(ks) for ks in self._kernel_shape)
+        return f"{kernel_info} convolution: {self.input_shape} -> {self.output_shape} ({self.num_params})"
 
 
 class Network:

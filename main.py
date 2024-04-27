@@ -42,7 +42,7 @@ training_data = training_data[:50000]
 # network = Network(
 #     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
 fc1 = FullyConnected(image_shape, (1, 10, 10), activation=Tanh())
-cov1 = Convolution(fc1.output_shape, (1, 1, 1))
+cov1 = Convolution(fc1.output_shape, (1, 5, 5))
 fc2 = FullyConnected(cov1.output_shape, (1, 10, 1), activation=Softmax())
 network = Network([fc1, cov1, fc2])
 # network = Network([num_image_pixels, 10])

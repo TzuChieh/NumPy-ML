@@ -1,4 +1,4 @@
-import model
+import vector as vec
 
 import numpy as np
 import pytest
@@ -16,7 +16,7 @@ import pytest
     ((6, 8),       (3, 3),       (2, 3),       (2, 2)),
 ])
 def test_correlate_shape_2d(matrix_shape, kernel_shape, stride_shape, expected):
-    result = model.correlate_shape(matrix_shape, kernel_shape, stride_shape)
+    result = vec.correlate_shape(matrix_shape, kernel_shape, stride_shape)
     assert np.array_equal(result, expected)
     
 @pytest.mark.parametrize(
@@ -25,7 +25,7 @@ def test_correlate_shape_2d(matrix_shape, kernel_shape, stride_shape, expected):
     ((55, 66, 6, 8), (3, 3),       (2, 3),       (55, 66, 2, 2)),
 ])
 def test_correlate_shape_nd(matrix_shape, kernel_shape, stride_shape, expected):
-    result = model.correlate_shape(matrix_shape, kernel_shape, stride_shape)
+    result = vec.correlate_shape(matrix_shape, kernel_shape, stride_shape)
     assert np.array_equal(result, expected)
     
 @pytest.mark.parametrize(
@@ -39,6 +39,6 @@ def test_correlate_shape_nd(matrix_shape, kernel_shape, stride_shape, expected):
     (np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]]), np.array([[-1, -2]]), (2, 1), np.array([[-5, -8], [-23, -26]])),
 ])
 def test_correlate_2d(matrix, kernel, stride_shape, expected):
-    result = model.correlate(matrix, kernel, stride_shape)
+    result = vec.correlate(matrix, kernel, stride_shape)
     assert np.array_equal(result, expected)
     

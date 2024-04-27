@@ -1,4 +1,4 @@
-import model
+import vector as vec
 
 import numpy as np
 import pytest
@@ -16,7 +16,7 @@ import pytest
     ((3, 4),       (1, 2),       (2, 1),    (7, 9)),
 ])
 def test_dilate_shape_2d(matrix_shape, stride_shape, pad_shape, expected):
-    result = model.dilate_shape(matrix_shape, stride_shape, pad_shape)
+    result = vec.dilate_shape(matrix_shape, stride_shape, pad_shape)
     assert np.array_equal(result, expected)
     
 @pytest.mark.parametrize(
@@ -26,7 +26,7 @@ def test_dilate_shape_2d(matrix_shape, stride_shape, pad_shape, expected):
     ((111, 222, 4, 4), (1, 1),       (0, 0),    (111, 222, 4, 4)),
 ])
 def test_dilate_shape_nd(matrix_shape, stride_shape, pad_shape, expected):
-    result = model.dilate_shape(matrix_shape, stride_shape, pad_shape)
+    result = vec.dilate_shape(matrix_shape, stride_shape, pad_shape)
     assert np.array_equal(result, expected)
 
 @pytest.mark.parametrize(
@@ -55,6 +55,6 @@ def test_dilate_shape_nd(matrix_shape, stride_shape, pad_shape, expected):
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])),
 ])
 def test_dilate_2d(matrix, stride_shape, pad_shape, expected):
-    result = model.dilate(matrix, stride_shape, pad_shape)
+    result = vec.dilate(matrix, stride_shape, pad_shape)
     assert np.array_equal(result, expected)
     
