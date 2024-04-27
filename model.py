@@ -33,7 +33,7 @@ class ActivationFunction(ABC):
     @abstractmethod
     def eval(self, z):
         """
-        @param The input vector.
+        @param z The input vector.
         @return Vector of the evaluated function.
         """
         pass
@@ -154,6 +154,13 @@ class Layer(ABC):
         @return A compatible `output_shape` in the form of vector.
         """
         return (*self.output_shape[:-2], self.output_shape[-2:].prod(), 1)
+    
+    @property
+    def num_params(self) -> int:
+        """
+        @return Number of learnable parameters.
+        """
+        return self.bias.size + self.weight.size
 
     def init_normal_params(self):
         """
@@ -179,6 +186,8 @@ class CostFunction(ABC):
     @abstractmethod
     def eval(self, a, y):
         """
+        @param a The input vector.
+        @param y The desired input vector.
         @return A vector of cost values.
         """
         pass
@@ -188,6 +197,8 @@ class CostFunction(ABC):
         """
         This method would have return a jacobian like `ActivationFunction.jacobian()`. However, currently all
         implementations are element-wise independent so we stick with returning a vector.
+        @param a The input vector.
+        @param y The desired input vector.
         @return A vector of derived cost values.
         """
         pass
@@ -285,18 +296,21 @@ class FullyConnected(Layer):
         output_shape: Iterable[int], 
         activation: ActivationFunction=Sigmoid()):
         """
-        @param input_shape Input dimensions, in (..., height, width).
-        @param output_shape Output dimensions, in (..., height, width).
+        @param input_shape Input dimensions, in (number of channels, height, width).
+        @param output_shape Output dimensions, in (number of channels, height, width).
         """
         super().__init__()
         self._input_shape = np.array(input_shape)
         self._output_shape = np.array(output_shape)
         self._activation = activation
 
+        assert input_shape[-3] == output_shape[-3], (
+            f"number of input channels {input_shape[-3]} must match number of output channels {output_shape[-3]}")
+        nc = self.input_shape[-3]
         ny = self.output_vector_shape[-2]
         nx = self.input_vector_shape[-2]
-        self._bias = np.zeros((ny, 1), dtype=real_type)
-        self._weight = np.zeros((ny, nx), dtype=real_type)
+        self._bias = np.zeros((nc, ny, 1), dtype=real_type)
+        self._weight = np.zeros((nc, ny, nx), dtype=real_type)
 
         self.init_scaled_normal_params()
 
@@ -349,8 +363,12 @@ class FullyConnected(Layer):
     def backpropagate(self, delta):
         assert delta.dtype == real_dtype, f"{delta.dtype}"
 
-        dCda = self._weight.T @ delta
+        w_T = vec.transpose_2d(self._weight)
+        dCda = w_T @ delta
         return dCda
+    
+    def __str__(self):
+        return f"fully connected: {self.input_shape} -> {self.output_shape} ({self.num_params})"
 
 
 class Convolution(Layer):
@@ -363,7 +381,7 @@ class Convolution(Layer):
         self, 
         input_shape: Iterable[int],
         kernel_shape: Iterable[int], 
-        stride_shape: Iterable[int], 
+        stride_shape: Iterable[int]=(1, 1), 
         activation: ActivationFunction=Sigmoid()):
         """
         @param kernel_shape Kernel dimensions, in (number of features, height, width).
@@ -372,14 +390,14 @@ class Convolution(Layer):
         super().__init__()
         
         output_shape = vec.correlate_shape(input_shape, kernel_shape, stride_shape)
-        output_shape[-3] *= kernel_shape[0]
+        num_features = kernel_shape[0]
 
         self._input_shape = np.array(input_shape)
-        self._output_shape = np.array(output_shape)
+        self._output_shape = np.array((*output_shape[:-3], output_shape[-3] * num_features, *output_shape[-2:]))
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
-        self._bias = np.zeros((kernel_shape[0], 1, 1), dtype=real_dtype)
+        self._bias = np.zeros((num_features, 1, 1), dtype=real_dtype)
         self._weight = np.zeros(kernel_shape, dtype=real_type)
 
         self.init_scaled_normal_params()
@@ -448,11 +466,15 @@ class Convolution(Layer):
         # a reversed kernel
         k = np.flip(self._weight)
         pad_shape = np.subtract(k.shape[-2:], 1)
-        dilated_delta = dilate(delta, self._stride_shape, pad_shape=pad_shape)
-        dCda = correlate(dilated_delta, k, stride_shape=(1, 1))
+        dilated_delta = vec.dilate(delta, self._stride_shape, pad_shape=pad_shape)
+        dCda = vec.correlate(dilated_delta, k, stride_shape=(1, 1))
 
         assert np.array_equal(dCda.shape, self.input_shape), f"shapes: {dCda.shape}, {self.input_shape}"
         return dCda.reshape(self.input_vector_shape)
+    
+    def __str__(self):
+        k_h, k_w = self._kernel_shape[-2:]
+        return f"{k_h}x{k_w} convolution: {self.input_shape} -> {self.output_shape} ({self.num_params})"
 
 
 class Network:
@@ -462,9 +484,17 @@ class Network:
         self.cost = cost
         self.init_velocities()
 
+        layer_info = ""
+        total_params = 0
+        for layer in self.hidden_layers:
+            layer_info += f"{str(layer)}\n"
+            total_params += layer.num_params
+        print(f"Network layers ({total_params} parameters):\n{layer_info}")
+
     def feedforward(self, x):
         """
         @param x The input vector.
+        @return The output vector.
         """
         a = x
         for layer in self.hidden_layers:
@@ -541,7 +571,7 @@ class Network:
         @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
         @return A tuple that contains (in order): number of correct outputs, fraction of correct outputs.
         """
-        results = [(np.argmax(self.feedforward(x)), np.argmax(y)) for x, y in dataset]
+        results = [(np.argmax(self.feedforward(vec.vector_2d(x))), np.argmax(y)) for x, y in dataset]
         num_right_answers = sum(1 for network_y, y in results if network_y == y)
         num_data = len(dataset)
         return (num_right_answers, num_right_answers / num_data)
@@ -555,8 +585,8 @@ class Network:
         cost = 0.0
         rcp_dataset_n = 1.0 / len(dataset)
         for x, y in dataset:
-            a = self.feedforward(x)
-            cost += self.cost.eval(a, y) * rcp_dataset_n
+            a = self.feedforward(vec.vector_2d(x))
+            cost += self.cost.eval(a, vec.vector_2d(y)) * rcp_dataset_n
 
         # L2 regularization term
         sum_w2 = sum(np.linalg.norm(w) ** 2 for w in self.weights)
@@ -568,8 +598,8 @@ class Network:
         """
         Initialize gradient records.
         """
-        self.v_biases = [np.zeros(b.shape, dtype=real_type) for b in self.biases]
-        self.v_weights = [np.zeros(w.shape, dtype=real_type) for w in self.weights]
+        self.v_biases = [vec.zeros_from(b) for b in self.biases]
+        self.v_weights = [vec.zeros_from(w) for w in self.weights]
 
     @property
     def biases(self):
@@ -594,8 +624,8 @@ class Network:
         rcp_mini_batch_n = real_type(1.0 / len(mini_batch_data))
 
         # Approximating the true `del_b` and `del_w` from m samples for each hidden layer
-        del_bs = [np.zeros(layer.bias.shape, dtype=real_type) for layer in self.hidden_layers]
-        del_ws = [np.zeros(layer.weight.shape, dtype=real_type) for layer in self.hidden_layers]
+        del_bs = [vec.zeros_from(layer.bias) for layer in self.hidden_layers]
+        del_ws = [vec.zeros_from(layer.weight) for layer in self.hidden_layers]
         for x, y in mini_batch_data:
             delta_del_bs, delta_del_ws = self._backpropagation(x, y, gradient_clip_norm)
             del_bs = [bi + dbi for bi, dbi in zip(del_bs, delta_del_bs)]
@@ -622,11 +652,11 @@ class Network:
         @param x Training inputs.
         @param y Training outputs.
         """
-        del_bs = [np.zeros(b.shape, dtype=real_type) for b in self.biases]
-        del_ws = [np.zeros(w.shape, dtype=real_type) for w in self.weights]
+        del_bs = [vec.zeros_from(b) for b in self.biases]
+        del_ws = [vec.zeros_from(w) for w in self.weights]
         
         # Forward pass: store activations & weighted inputs (`zs`) layer by layer
-        activations = [x]
+        activations = [vec.vector_2d(x)]
         zs = []
         for layer in self.hidden_layers:
             z = layer.weighted_input(activations[-1])
@@ -634,9 +664,10 @@ class Network:
             activations.append(layer.feedforward(activations[-1], z=z))
 
         # Backward pass (initial delta term, must take cost function into account)
-        dCda = self.cost.derived_eval(activations[-1], y)
+        dCda = self.cost.derived_eval(activations[-1], vec.vector_2d(y))
         dadz = self.hidden_layers[-1].activation.jacobian(zs[-1], a=activations[-1])
-        delta = dadz.T @ dCda
+        dadz_T = vec.transpose_2d(dadz)
+        delta = dadz_T @ dCda
         delta = self._gradient_clip(delta, gradient_clip_norm)
 
         # Backward pass (hidden layers)
@@ -646,7 +677,8 @@ class Network:
             next_layer = self.hidden_layers[layer_idx + 1]
             delta = next_layer.backpropagate(delta)
             dadz = layer.activation.jacobian(zs[layer_idx])
-            delta = dadz.T @ delta
+            dadz_T = vec.transpose_2d(dadz)
+            delta = dadz_T @ delta
             delta = self._gradient_clip(delta, gradient_clip_norm)
             del_bs[layer_idx], del_ws[layer_idx] = layer.derived_params(activations[layer_idx], delta)
 

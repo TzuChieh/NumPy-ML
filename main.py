@@ -4,13 +4,13 @@ import numpy as np
 
 import idx_file
 from model import Network
-from model import FullyConnected
+from model import FullyConnected, Convolution
 from model import Sigmoid, Softmax, ReLU, Tanh
 
 
 def label_to_output(training_label):
-    output = np.zeros((10, 1), dtype=np.float32)
-    output[int(training_label)] = 1
+    output = np.zeros((1, 10, 1), dtype=np.float32)
+    output[0, int(training_label), 0] = 1
     return output
 
 # Disabling division by 0 error. 0/0 division error can also be ignored by setting `invalid='ignore'`, but we
@@ -26,13 +26,12 @@ test_labels = idx_file.load("./database/t10k-labels-idx1-ubyte.gz").astype(np.fl
 training_inputs = training_inputs / np.float32(255)
 test_inputs = test_inputs / np.float32(255)
 
-num_image_pixels = training_inputs.shape[1] * training_inputs.shape[2]
-
+image_shape = (1, training_inputs.shape[1], training_inputs.shape[2])
 training_data = [
-    (np.reshape(image, (num_image_pixels, 1)), label_to_output(label))
+    (np.reshape(image, image_shape), label_to_output(label))
     for image, label in zip(training_inputs, training_labels)]
 test_data = [
-    (np.reshape(image, (num_image_pixels, 1)), label_to_output(label))
+    (np.reshape(image, image_shape), label_to_output(label))
     for image, label in zip(test_inputs, test_labels)]
 
 random.shuffle(training_data)
@@ -42,9 +41,10 @@ training_data = training_data[:50000]
 # network = Network([num_image_pixels, 30, 10])
 # network = Network(
 #     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
-network = Network(
-    [FullyConnected([1, num_image_pixels, 1], [1, 100, 1], activation=Tanh()),
-     FullyConnected([1, 100, 1], [1, 10, 1], activation=Softmax())])
+fc1 = FullyConnected(image_shape, (1, 10, 10), activation=Tanh())
+cov1 = Convolution(fc1.output_shape, (1, 1, 1))
+fc2 = FullyConnected(cov1.output_shape, (1, 10, 1), activation=Softmax())
+network = Network([fc1, cov1, fc2])
 # network = Network([num_image_pixels, 10])
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.5, test_data=test_data)
 network.stochastic_gradient_descent(

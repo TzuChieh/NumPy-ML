@@ -2,6 +2,20 @@ import numpy as np
 import numpy.typing as np_type
 
 
+def zeros_from(m: np_type.NDArray):
+    """
+    Same as `numpy.zeros()`, except that settings are inferred from `m`.
+    """
+    return np.zeros(m.shape, dtype=m.dtype)
+
+def vector_2d(m: np_type.NDArray):
+    """
+    Reshape the last two dimensions of the matrix into a column vector. Other dimensions remain unchanged.
+    @param m The matrix to reshape into vector.
+    """
+    length = np.prod(m.shape[-2:])
+    return m.reshape((*m.shape[:-2], length, 1))
+
 def transpose_2d(m: np_type.NDArray):
     """
     Transpose the last two dimensions of a matrix. Other dimensions remain unchanged.
