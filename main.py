@@ -34,7 +34,7 @@ test_data = [
     (np.reshape(image, image_shape), label_to_output(label))
     for image, label in zip(test_inputs, test_labels)]
 
-random.shuffle(training_data)
+random.Random(6942).shuffle(training_data)
 validation_data = training_data[50000:]
 training_data = training_data[:50000]
 
@@ -42,7 +42,7 @@ training_data = training_data[:50000]
 # network = Network(
 #     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
 fc1 = FullyConnected(image_shape, (1, 10, 10), activation=Tanh())
-cov1 = Convolution(fc1.output_shape, (1, 5, 5))
+cov1 = Convolution(fc1.output_shape, (5, 5), 1)
 fc2 = FullyConnected(cov1.output_shape, (1, 10, 1), activation=Softmax())
 network = Network([fc1, cov1, fc2])
 # network = Network([num_image_pixels, 10])
@@ -53,9 +53,9 @@ network.stochastic_gradient_descent(
     10,
     eta=0.05,
     lambba=1,
-    test_data=test_data,
-    report_test_performance=True,
-    report_test_cost=True)
+    eval_data=validation_data,
+    report_eval_performance=True,
+    report_eval_cost=True)
 # network.stochastic_gradient_descent(training_data, 60, 10, eta=0.1, momentum=0.0, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 30, 10, eta=0.1, momentum=0.5, lambba=5.0, test_data=test_data)
 # network.stochastic_gradient_descent(training_data, 1000, 10, eta=0.1, momentum=0.2, lambba=5.0, test_data=test_data)

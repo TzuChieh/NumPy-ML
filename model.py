@@ -380,25 +380,32 @@ class Convolution(Layer):
     def __init__(
         self, 
         input_shape: Iterable[int],
-        kernel_shape: Iterable[int], 
+        kernel_shape: Iterable[int],
+        output_features: int,
         stride_shape: Iterable[int]=(1,), 
         activation: ActivationFunction=Sigmoid()):
         """
-        @param kernel_shape Kernel dimensions, in (number of features, height, width).
-        @param stride_shape Stride dimensions in 2-D.
+        @param kernel_shape Kernel dimensions, in (height, width). Will automatically infer the number of channels
+        of the kernel from `input_shape`.
+        @param stride_shape Stride dimensions. The shape must be broadcastable to `kernel_shape`.
         """
         super().__init__()
         
-        output_shape = vec.correlate_shape(input_shape, kernel_shape, stride_shape)
-        num_features = kernel_shape[0]
+        assert len(kernel_shape) == 2
+
+        input_channels = input_shape[-3]
+        stride_shape = (1, *np.broadcast_to(stride_shape, len(kernel_shape)))
+        kernel_shape = (input_channels, *kernel_shape)
+        correlated_shape = vec.correlate_shape(input_shape, kernel_shape, stride_shape)
+        assert correlated_shape[-3] == 1
 
         self._input_shape = np.array(input_shape)
-        self._output_shape = np.array((*output_shape[:-3], output_shape[-3] * num_features, *output_shape[-2:]))
+        self._output_shape = np.array((*correlated_shape[:-3], output_features, *correlated_shape[-2:]))
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
-        self._bias = np.zeros((num_features, 1, 1), dtype=real_dtype)
-        self._weight = np.zeros(kernel_shape, dtype=real_type)
+        self._bias = np.zeros((output_features, 1, 1, 1), dtype=real_dtype)
+        self._weight = np.zeros((output_features, *kernel_shape), dtype=real_type)
 
         self.init_scaled_normal_params()
 
@@ -424,13 +431,13 @@ class Convolution(Layer):
     
     def weighted_input(self, x):
         x = x.reshape(self.input_shape)
-        b = self._bias
-        k = self._weight
 
-        z = vec.correlate(x, k, self._stride_shape)
-        z += b
+        z = np.zeros(self.output_shape, dtype=x.dtype)
+        for output_channel in range(self.output_shape[-3]):
+            b = self._bias[output_channel]
+            k = self._weight[output_channel]
+            z[output_channel] = vec.correlate(x, k, self._stride_shape) + b
 
-        assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
         return z.reshape(self.output_vector_shape)
     
     def update_params(self, bias, weight):
@@ -442,13 +449,15 @@ class Convolution(Layer):
         delta = delta.reshape(self.output_shape)
 
         sum_axes = tuple(di for di in range(-len(self._kernel_shape), 0))
-        del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=real_type)
+        del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=real_type).reshape(self.bias.shape)
 
         # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
         dilated_delta = vec.dilate(delta, self._stride_shape)
-        del_w = vec.correlate(x, dilated_delta)
+        del_w = vec.zeros_from(self.weight)
+        for output_channel in range(self.output_shape[-3]):
+            d = dilated_delta[np.newaxis, output_channel, ...]
+            del_w[output_channel] = vec.correlate(x, d)
 
-        assert np.array_equal(del_w.shape, self._weight.shape), f"shapes: {del_w.shape}, {self._weight.shape}"
         return (del_b, del_w)
 
     def feedforward(self, x, **kwargs):
@@ -465,12 +474,16 @@ class Convolution(Layer):
 
         # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with
         # a reversed kernel
-        k = np.flip(self._weight)
-        pad_shape = np.subtract(k.shape, 1)
+        flip_axes = tuple(di for di in range(-len(self._kernel_shape), 0))
+        reversed_k = np.flip(self._weight, axis=flip_axes)
+        pad_shape = np.subtract(self._kernel_shape, 1)
         dilated_delta = vec.dilate(delta, self._stride_shape, pad_shape=pad_shape)
-        dCda = vec.correlate(dilated_delta, k)
+        dCda = np.zeros(self.input_shape, dtype=delta.dtype)
+        for output_channel in range(self.output_shape[-3]):
+            k = reversed_k[output_channel]
+            d = dilated_delta[np.newaxis, output_channel, ...]
+            dCda += vec.correlate(d, k)
 
-        assert np.array_equal(dCda.shape, self.input_shape), f"shapes: {dCda.shape}, {self.input_shape}"
         return dCda.reshape(self.input_vector_shape)
     
     def __str__(self):
@@ -511,11 +524,11 @@ class Network:
         momentum=0.0,
         eta=1,
         lambba=0.0,
-        test_data=None,
+        eval_data=None,
         report_training_performance=False,
-        report_test_performance=False,
+        report_eval_performance=False,
         report_training_cost=False,
-        report_test_cost=False):
+        report_eval_cost=False):
         """
         @param gradient_clip_norm Clip threshold for backpropagation gradient based on norm.
         @param eta Learning rate.
@@ -549,17 +562,17 @@ class Network:
                 num, frac = self.performance(training_data)
                 report += f"; training perf: {num} / {len(training_data)} ({frac})"
 
-            if report_test_performance:
-                assert test_data is not None
-                num, frac = self.performance(test_data)
-                report += f"; test perf: {num} / {len(test_data)} ({frac})"
+            if report_eval_performance:
+                assert eval_data is not None
+                num, frac = self.performance(eval_data)
+                report += f"; eval perf: {num} / {len(eval_data)} ({frac})"
 
             if report_training_cost:
                 report += f"; training cost: {self.total_cost(training_data, lambba)}"
 
-            if report_test_cost:
-                assert test_data is not None
-                report += f"; test cost: {self.total_cost(test_data, lambba)}"
+            if report_eval_cost:
+                assert eval_data is not None
+                report += f"; eval cost: {self.total_cost(eval_data, lambba)}"
 
             report += f"; Δt: {timedelta(seconds=(timer() - epoch_start_time))}"
 

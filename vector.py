@@ -36,23 +36,25 @@ def transpose_2d(m: np_type.NDArray):
 
 def correlate_shape(matrix_shape, kernel_shape, stride_shape=(1,)) -> np_type.NDArray:
     """
-    Given the shapes, computes the resulting shape after the correlation. Will compute with the kernel's dimemsions
-    (broadcast the rest).
+    Given the shapes, computes the resulting shape after the correlation. Will compute with the kernel's dimensions
+    (other dimensions remain unchanged).
     @param kernel_shape Kernel dimensions.
     @param stride_shape Stride dimensions (for moving the kernel).
     """
     nd = len(kernel_shape)
+    stride_shape = np.broadcast_to(stride_shape, nd)
     correlate_size = np.floor_divide(np.subtract(matrix_shape[-nd:], kernel_shape), stride_shape) + 1
     return (*matrix_shape[:-nd], *correlate_size)
 
 def dilate_shape(matrix_shape, stride_shape, pad_shape=(0,)) -> np_type.NDArray:
     """
     Given the shapes, computes the resulting shape after the dilation. Will compute with the stride's and pad's
-    dimemsions (broadcast the rest).
+    dimensions (other dimensions remain unchanged).
     @param stride_shape Stride dimensions.
     @param pad_shape Pad dimensions.
     """
-    nd = max(len(stride_shape), len(pad_shape))
+    stride_shape, pad_shape = np.broadcast_arrays(stride_shape, pad_shape)
+    nd = len(stride_shape)
     skirt_size = np.multiply(pad_shape, 2)
     dilate_size = np.subtract(matrix_shape[-nd:], 1) * stride_shape + 1
     return (*matrix_shape[:-nd], *(skirt_size + dilate_size)) 
@@ -67,9 +69,8 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)):
     dilated_shape = dilate_shape(matrix.shape, stride_shape, pad_shape)
     
     # Create slice into the dilated matrix so we can assign `matrix` without looping
-    nd = max(len(stride_shape), len(pad_shape))
-    step = np.broadcast_to(stride_shape, nd)
-    pad = np.broadcast_to(pad_shape, nd)
+    step, pad = np.broadcast_arrays(stride_shape, pad_shape)
+    nd = len(step)
     size = np.array(dilated_shape[-nd:])
     slices = tuple(slice(pd, sz - pd, st) for pd, sz, st in zip(pad, size, step))
 
@@ -79,7 +80,7 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)):
     
 def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,)):
     """
-    Correlate the matrix according to the specified shapes. Will compute with the kernel's dimemsions
+    Correlate the matrix according to the specified shapes. Will compute with the kernel's dimensions
     (broadcast the rest).
     @param kernel The kernel to correlate with.
     @param stride_shape Stride dimensions.
