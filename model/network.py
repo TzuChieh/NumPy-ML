@@ -4,10 +4,10 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 """
 
 
-import model.layer as lay
-import model.cost as cos
 import common as com
 import common.vector as vec
+from model.cost import CostFunction, CrossEntropy
+from model.layer import Layer
 
 import numpy as np
 
@@ -19,7 +19,7 @@ from datetime import timedelta
 
 
 class Network:
-    def __init__(self, hidden_layers: Iterable[lay.Layer], cost: cos.CostFunction=cos.CrossEntropy()):
+    def __init__(self, hidden_layers: Iterable[Layer], cost: CostFunction=CrossEntropy()):
         self.hidden_layers = hidden_layers
         self.num_layers = len(hidden_layers) + 1
         self.cost = cost
@@ -234,7 +234,6 @@ class Network:
             delta_norm = np.linalg.norm(delta)
             if delta_norm >= gradient_clip_norm:
                 delta = delta / delta_norm * gradient_clip_norm
-                print(f"clipped {delta}")
         return delta
     
     def _has_valid_connections(self):

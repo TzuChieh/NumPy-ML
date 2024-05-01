@@ -15,13 +15,13 @@ def _make_kernel_dim_to_einsum_correlation_expr():
 _kernel_dim_to_einsum_correlation_expr = _make_kernel_dim_to_einsum_correlation_expr()
 
 
-def zeros_from(m: np_type.NDArray):
+def zeros_from(m: np_type.NDArray) -> np_type.NDArray:
     """
     Same as `numpy.zeros()`, except that settings are inferred from `m`.
     """
     return np.zeros(m.shape, dtype=m.dtype)
 
-def vector_2d(m: np_type.NDArray):
+def vector_2d(m: np_type.NDArray) -> np_type.NDArray:
     """
     Reshape the last two dimensions of the matrix into a column vector. Other dimensions remain unchanged.
     @param m The matrix to reshape into vector.
@@ -29,12 +29,28 @@ def vector_2d(m: np_type.NDArray):
     length = np.prod(m.shape[-2:])
     return m.reshape((*m.shape[:-2], length, 1))
 
-def transpose_2d(m: np_type.NDArray):
+def transpose_2d(m: np_type.NDArray) -> np_type.NDArray:
     """
     Transpose the last two dimensions of a matrix. Other dimensions remain unchanged.
     @param m The matrix to transpose.
     """
     return np.swapaxes(m, -2, -1)
+
+def diag_from_vector_2d(m: np_type.NDArray) -> np_type.NDArray:
+    """
+    Create diagonal matrices from column vectors (the last two dimensions of a matrix). Other dimensions
+    remain unchanged.
+    """
+    assert len(m.shape) >= 2 and m.shape[-1] == 1, f"`m` must be column vectors (shape: {m.shape})"
+
+    # Column vector elements are along axis=-2, use them to create diagonal matrices
+    diag = np.apply_along_axis(np.diagflat, -2, m)
+
+    # Remove the redundant 1-wide x axis (originally for the column vector)
+    diag = diag[..., 0]
+
+    assert len(diag.shape) == len(m.shape), f"shapes: {diag.shape}, {m.shape}"
+    return diag
 
 def correlate_shape(matrix_shape, kernel_shape, stride_shape=(1,)) -> np_type.NDArray:
     """
@@ -70,7 +86,7 @@ def pool_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
     """
     return correlate_shape(matrix_shape, kernel_shape, stride_shape)
 
-def sliding_window_view(matrix: np_type.NDArray, window_shape, stride_shape=(1,), is_writeable=False):
+def sliding_window_view(matrix: np_type.NDArray, window_shape, stride_shape=(1,), is_writeable=False) -> np_type.NDArray:
     """
     @param is_writeable Whether the returned view is writeable or not. For safety, the view is read-only. See
     `numpy.lib.stride_tricks.as_strided()` for more details. Basically, you at least need to ensure that the
@@ -88,9 +104,9 @@ def sliding_window_view(matrix: np_type.NDArray, window_shape, stride_shape=(1,)
         *matrix.strides[:-nd],
         *[stride_shape[di] * matrix.strides[di] for di in range(-nd, 0)],
         *matrix.strides[-nd:])
-    return np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=False)
+    return np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=is_writeable)
 
-def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)):
+def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)) -> np_type.NDArray:
     """
     Dilate the matrix according to the specified shapes. Will compute with the stride's and pad's dimensions
     (broadcast the rest).
@@ -109,7 +125,7 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)):
     dilated_matrix[..., *slices] = matrix
     return dilated_matrix
     
-def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,)):
+def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,)) -> np_type.NDArray:
     """
     Correlate the matrix according to the specified shapes. Will compute with the kernel's dimensions
     (broadcast the rest).
@@ -125,7 +141,7 @@ def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,
     assert np.array_equal(correlated.shape, strided_view.shape[:-nd]), f"shapes: {correlated.shape}, {strided_view.shape}"
     return correlated
 
-def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: com.PoolingMode):
+def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: com.PoolingMode) -> np_type.NDArray:
     """
     Perform pooling operation on the matrix according to the specified shapes. Will compute with the pool's dimensions
     (broadcast the rest).

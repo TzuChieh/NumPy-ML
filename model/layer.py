@@ -4,9 +4,9 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 """
 
 
-import model.activation as act
 import common as com
 import common.vector as vec
+from model.activation import ActivationFunction, Sigmoid, Identity
 
 import numpy as np
 import numpy.typing as np_type
@@ -27,7 +27,7 @@ class Layer(ABC):
     @abstractmethod
     def bias(self) -> np_type.NDArray:
         """
-        @return Bias parameters. `None` if there is no bias term.
+        @return Bias parameters. Empty array if there is no bias term.
         """
         pass
 
@@ -35,13 +35,13 @@ class Layer(ABC):
     @abstractmethod
     def weight(self) -> np_type.NDArray:
         """
-        @return Weight parameters. `None` if there is no weight term.
+        @return Weight parameters. Empty array if there is no weight term.
         """
         pass
 
     @property
     @abstractmethod
-    def activation(self) -> act.ActivationFunction:
+    def activation(self) -> ActivationFunction:
         """
         @return The activation function.
         """
@@ -66,7 +66,7 @@ class Layer(ABC):
     @abstractmethod
     def weighted_input(self, x: np_type.NDArray):
         """
-        @param x The input activation vector.
+        @param x The input vector.
         @return The weighted input vector (z).
         """
         pass
@@ -82,16 +82,17 @@ class Layer(ABC):
     @abstractmethod
     def derived_params(self, x: np_type.NDArray, delta: np_type.NDArray):
         """
-        @param x The input activation vector.
+        @param x The input vector.
         @param delta The error vector (dCdz).
-        @return Gradient of `bias` and `weight` in the form `(del_b, del_w)`.
+        @return Gradient of `bias` and `weight` in the form `(del_b, del_w)`. A derived term could be an empty array
+        if there is no such parameter (e.g., a layer with empty bias could return `(empty array, del_w)`).
         """
         pass
 
     @abstractmethod
     def feedforward(self, x: np_type.NDArray, **kwargs):
         """
-        @param x The input activation vector.
+        @param x The input vector.
         @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return Activation vector of the layer.
         """
@@ -100,8 +101,9 @@ class Layer(ABC):
     @abstractmethod
     def backpropagate(self, x, delta: np_type.NDArray):
         """
+        @param x The input vector.
         @param delta The error vector (dCdz).
-        @return The error vector (dCdx).
+        @return The error vector (dCdx); or equivalently, "dCda'" (where "a'" is the activation from previous layer).
         """
         pass
 
@@ -154,7 +156,7 @@ class FullyConnected(Layer):
         self, 
         input_shape: Iterable[int],
         output_shape: Iterable[int], 
-        activation: act.ActivationFunction=act.Sigmoid()):
+        activation: ActivationFunction=Sigmoid()):
         """
         @param input_shape Input dimensions, in (number of channels, height, width).
         @param output_shape Output dimensions, in (number of channels, height, width).
@@ -224,8 +226,8 @@ class FullyConnected(Layer):
         assert delta.dtype == com.real_dtype, f"{delta.dtype}"
 
         w_T = vec.transpose_2d(self._weight)
-        dCdz = w_T @ delta
-        return dCdz
+        dCdx = w_T @ delta
+        return dCdx
     
     def __str__(self):
         return f"fully connected: {self.input_shape} -> {self.output_shape} ({self.num_params})"
@@ -243,7 +245,7 @@ class Convolution(Layer):
         kernel_shape: Iterable[int],
         output_features: int,
         stride_shape: Iterable[int]=(1,), 
-        activation: act.ActivationFunction=act.Sigmoid()):
+        activation: ActivationFunction=Sigmoid()):
         """
         @param kernel_shape Kernel dimensions, in (height, width). Will automatically infer the number of channels
         of the kernel from `input_shape`.
@@ -308,7 +310,8 @@ class Convolution(Layer):
         x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)
 
-        sum_axes = tuple(di for di in range(-len(self._kernel_shape), 0))
+        # Backpropagation for bias is per-feature summation of gradient
+        sum_axes = (-2, -1)
         del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=com.real_type).reshape(self.bias.shape)
 
         # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
@@ -338,13 +341,13 @@ class Convolution(Layer):
         reversed_k = np.flip(self._weight, axis=flip_axes)
         pad_shape = np.subtract(self._kernel_shape, 1)
         dilated_delta = vec.dilate(delta, self._stride_shape, pad_shape=pad_shape)
-        dCdz = np.zeros(self.input_shape, dtype=delta.dtype)
+        dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
         for output_channel in range(self.output_shape[-3]):
             k = reversed_k[output_channel]
             d = dilated_delta[np.newaxis, output_channel, ...]
-            dCdz += vec.correlate(d, k)
+            dCdx += vec.correlate(d, k)
 
-        return dCdz.reshape(self.input_vector_shape)
+        return dCdx.reshape(self.input_vector_shape)
     
     def __str__(self):
         kernel_info = "x".join(str(ks) for ks in self._kernel_shape)
@@ -354,6 +357,9 @@ class Convolution(Layer):
 class Pool(Layer):
     """
     A max pooling layer.
+    @note Currently the implementation of pooling is fairly slow--using manual iteration on the Python side for
+    each pool window. For a simple network (~4 layers) with just one max pooling (2 -> 1 feature) slows down each
+    epoch by a factor of ~2. TL;DR: a faster `backpropagate()` implementation is much appreciated.
     """
     def __init__(
         self, 
@@ -379,15 +385,15 @@ class Pool(Layer):
 
     @property
     def bias(self):
-        return None
+        return np.array([])
     
     @property
     def weight(self):
-        return None
+        return np.array([])
     
     @property
     def activation(self):
-        return None
+        return Identity()
     
     @property
     def input_shape(self):
@@ -402,13 +408,13 @@ class Pool(Layer):
         z = vec.pool(x, self._kernel_shape, self._stride_shape, self._mode)
 
         assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
-        return z
+        return z.reshape(self.output_vector_shape)
     
     def update_params(self, bias, weight):
         pass
 
     def derived_params(self, x, delta):
-        return (None, None)
+        return (np.array([]), np.array([]))
 
     def feedforward(self, x, **kwargs):
         """
@@ -420,16 +426,15 @@ class Pool(Layer):
     def backpropagate(self, x, delta):
         assert delta.dtype == com.real_dtype, f"{delta.dtype}"
 
-        x = delta.reshape(self.input_shape)
+        x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)
         x_pool_view = vec.sliding_window_view(x, self._kernel_shape, self._stride_shape)
 
         dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
         dCdx_pool_view = vec.sliding_window_view(dCdx, self._kernel_shape, self._stride_shape, is_writeable=True)
-        for pool_idx in np.ndindex(self.output_shape):
-            pool_idx = np.array(pool_idx)
-            x_pool = x_pool_view[*pool_idx]
-            dCdx_pool = dCdx_pool_view[*pool_idx]
+        for pool_idx in np.ndindex(*self.output_shape):
+            x_pool = x_pool_view[pool_idx]
+            dCdx_pool = dCdx_pool_view[pool_idx]
 
             # Lots of indexing here, make sure we are getting expected shapes
             assert np.array_equal(x_pool.shape, self._kernel_shape), f"shapes: {x_pool.shape}, {self._kernel_shape}"

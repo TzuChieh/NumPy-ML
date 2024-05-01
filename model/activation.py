@@ -4,22 +4,25 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 """
 
 
+import common.vector as vec
+
 import numpy as np
+import numpy.typing as np_typing
 
 from abc import ABC, abstractmethod
 
 
 class ActivationFunction(ABC):
     @abstractmethod
-    def eval(self, z):
+    def eval(self, z: np_typing.NDArray):
         """
         @param z The input vector.
-        @return Vector of the evaluated function.
+        @return Vector of the evaluated function (activation, `a`).
         """
         pass
         
     @abstractmethod
-    def jacobian(self, z, **kwargs):
+    def jacobian(self, z: np_typing.NDArray, **kwargs):
         """
         @param z The input vector.
         @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
@@ -31,6 +34,15 @@ class ActivationFunction(ABC):
         pass
 
 
+class Identity(ActivationFunction):
+    def eval(self, z):
+        return z
+    
+    def jacobian(self, z, **kwargs):
+        dadz = np.ones(z.shape, dtype=z.dtype)
+        return vec.diag_from_vector_2d(dadz)
+
+
 class Sigmoid(ActivationFunction):
     def eval(self, z):
         a = 1 / (1 + np.exp(-z))
@@ -40,7 +52,7 @@ class Sigmoid(ActivationFunction):
         # Sigmoid is element-wise independent, so its jacobian is simply a diagonal matrix
         a = kwargs['a'] if 'a' in kwargs else self.eval(z)
         dadz = a * (1 - a)
-        return np.diagflat(dadz)
+        return vec.diag_from_vector_2d(dadz)
     
 
 class Softmax(ActivationFunction):
@@ -55,7 +67,9 @@ class Softmax(ActivationFunction):
         # For a derivation that is clean and avoids looping & branching, see
         # https://mattpetersen.github.io/softmax-with-cross-entropy
         a = kwargs['a'] if 'a' in kwargs else self.eval(z)
-        dadz = np.diagflat(a) - np.outer(a, a)
+        diag_a = vec.diag_from_vector_2d(a)
+        a_T = vec.transpose_2d(a)
+        dadz = diag_a - a @ a_T
         return dadz
 
 
@@ -66,7 +80,7 @@ class Tanh(ActivationFunction):
     def jacobian(self, z, **kwargs):
         a = kwargs['a'] if 'a' in kwargs else self.eval(z)
         dadz = 1 - np.square(a)
-        return np.diagflat(dadz)
+        return vec.diag_from_vector_2d(dadz)
 
 
 class ReLU(ActivationFunction):
@@ -76,6 +90,5 @@ class ReLU(ActivationFunction):
     def jacobian(self, z, **kwargs):
         # Derivatives at 0 is implemented as 0. See "Numerical influence of ReLU'(0) on backpropagation",
         # https://hal.science/hal-03265059/file/Impact_of_ReLU_prime.pdf
-        dadz = (z > 0).astype(real_type)
-        return np.diagflat(dadz) 
-
+        dadz = (z > 0).astype(z.dtype)
+        return vec.diag_from_vector_2d(dadz) 
