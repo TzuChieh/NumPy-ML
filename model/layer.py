@@ -444,7 +444,7 @@ class Pool(Layer):
                 # Gradient only propagate to the max element (think of an imaginary weight of 1, non-max element
                 # has 0 weight)
                 case com.PoolingMode.MAX:
-                    dCdx_pool.flat[x_pool.argmax()] = delta[pool_idx]
+                    dCdx_pool.flat[x_pool.argmax()] += delta[pool_idx]
                 # Similar to the case of max pooling, average pooling is equivalent to an imaginary weight of
                 # the reciprocal of number of pool elements
                 case com.PoolingMode.AVERAGE:
