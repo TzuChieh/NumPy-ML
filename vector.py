@@ -1,3 +1,5 @@
+from enum import Enum
+
 import numpy as np
 import numpy.typing as np_type
 
@@ -11,6 +13,11 @@ def _make_kernel_dim_to_einsum_correlation_expr():
     return result
 
 _kernel_dim_to_einsum_correlation_expr = _make_kernel_dim_to_einsum_correlation_expr()
+
+
+class PoolingMode(Enum):
+    MAX = 1
+    AVERAGE = 2
 
 
 def zeros_from(m: np_type.NDArray):
@@ -57,7 +64,36 @@ def dilate_shape(matrix_shape, stride_shape, pad_shape=(0,)) -> np_type.NDArray:
     nd = len(stride_shape)
     skirt_size = np.multiply(pad_shape, 2)
     dilate_size = np.subtract(matrix_shape[-nd:], 1) * stride_shape + 1
-    return (*matrix_shape[:-nd], *(skirt_size + dilate_size)) 
+    return (*matrix_shape[:-nd], *(skirt_size + dilate_size))
+
+def pool_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
+    """
+    Given the shapes, computes the resulting shape after pooling. Will compute with the pool's dimensions
+    (other dimensions remain unchanged).
+    @param kernel_shape Pool dimensions.
+    @param stride_shape Stride dimensions.
+    """
+    return correlate_shape(matrix_shape, kernel_shape, stride_shape)
+
+def sliding_window_view(matrix: np_type.NDArray, window_shape, stride_shape=(1,), is_writeable=False):
+    """
+    @param is_writeable Whether the returned view is writeable or not. For safety, the view is read-only. See
+    `numpy.lib.stride_tricks.as_strided()` for more details. Basically, you at least need to ensure that the
+    write-to locations are not overlapping in vectorized operations.
+    """
+    correlated_shape = correlate_shape(matrix.shape, window_shape, stride_shape)
+    nd = len(correlated_shape)
+    stride_shape = np.broadcast_to(stride_shape, nd)
+    
+    view_shape = (
+        *correlated_shape[:-nd],
+        *correlated_shape[-nd:],
+        *window_shape)
+    view_stride = (
+        *matrix.strides[:-nd],
+        *[stride_shape[di] * matrix.strides[di] for di in range(-nd, 0)],
+        *matrix.strides[-nd:])
+    return np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=False)
 
 def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)):
     """
@@ -87,20 +123,29 @@ def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,
     """
     assert matrix.dtype == kernel.dtype, f"types: {matrix.dtype}, {kernel.dtype}"
 
-    correlated_shape = correlate_shape(matrix.shape, kernel.shape, stride_shape)
     nd = len(kernel.shape)
-    stride_shape = np.broadcast_to(stride_shape, nd)
-
-    view_shape = (
-        *correlated_shape[:-nd],
-        *correlated_shape[-nd:],
-        *kernel.shape[-nd:])
-    view_stride = (
-        *matrix.strides[:-nd],
-        *[stride_shape[di] * matrix.strides[di] for di in range(-nd, 0)],
-        *matrix.strides[-nd:])
-    strided_view = np.lib.stride_tricks.as_strided(matrix, view_shape, view_stride, writeable=False)
+    strided_view = sliding_window_view(matrix, kernel.shape, stride_shape)
     correlated = np.einsum(_kernel_dim_to_einsum_correlation_expr[nd], strided_view, kernel)
 
-    assert np.array_equal(correlated.shape, correlated_shape), f"shapes: {correlated.shape}, {correlated_shape}"
+    assert np.array_equal(correlated.shape, strided_view.shape[:-nd]), f"shapes: {correlated.shape}, {strided_view.shape}"
     return correlated
+
+def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: PoolingMode):
+    """
+    Perform pooling operation on the matrix according to the specified shapes. Will compute with the pool's dimensions
+    (broadcast the rest).
+    @param kernel_shape Pool dimensions.
+    @param stride_shape Stride dimensions.
+    """
+    nd = len(kernel_shape)
+    strided_view = sliding_window_view(matrix, kernel_shape, stride_shape)
+    match mode:
+        case PoolingMode.MAX:
+            pooled = strided_view.max(axis=tuple(di for di in range(-nd, 0)))
+        case PoolingMode.AVERAGE:
+            pooled = strided_view.mean(axis=tuple(di for di in range(-nd, 0)))
+        case _:
+            raise ValueError("unknown pooling mode specified")
+
+    assert np.array_equal(pooled.shape, strided_view.shape[:-nd]), f"shapes: {pooled.shape}, {strided_view.shape[:-nd]}"
+    return pooled

@@ -1,4 +1,4 @@
-# Numpy-ML
+# NumPy-ML
 
 This is my testground for the basics of machine learning. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). This project is inspired by a collection of resources that I found useful on the Internet:
 
@@ -9,6 +9,7 @@ This is my testground for the basics of machine learning. The implementation is 
 * Mayank Kaushik's article [Backpropagation for Convolution with Strides](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-8137e4fc2710) and its [Part 2](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-fb2f2efc4faa) are well written for general cases (with stride)
 * Rae's video explanation [Episode 6 - Convolution Layer Backpropagation - Convolutional Neural Network from Scratch](https://www.youtube.com/watch?v=njlyOAiK_yE) has nice animations for understanding the topic
 * S. Do.'s article [Vectorized convolution operation using NumPy](https://medium.com/latinxinai/vectorized-convolution-operation-using-numpy-b122fd52fba3) explains how to use Einstein summation convention for convolution perfectly
+* Vincent Dumoulin and Francesco Visin's [A guide to convolution arithmetic for deep learning](https://arxiv.org/abs/1603.07285)
 
 ## Some Notes
 

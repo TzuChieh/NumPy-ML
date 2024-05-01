@@ -63,7 +63,7 @@ class Layer(ABC):
     @abstractmethod
     def bias(self) -> np_type.NDArray:
         """
-        @return The bias parameters.
+        @return Bias parameters. `None` if there is no bias term.
         """
         pass
 
@@ -71,7 +71,7 @@ class Layer(ABC):
     @abstractmethod
     def weight(self) -> np_type.NDArray:
         """
-        @return The weight parameters.
+        @return Weight parameters. `None` if there is no weight term.
         """
         pass
 
@@ -134,7 +134,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def backpropagate(self, delta: np_type.NDArray):
+    def backpropagate(self, x, delta: np_type.NDArray):
         """
         @param delta The error vector (dCdz).
         @return The error vector (dCdx).
@@ -290,6 +290,9 @@ class CrossEntropy(CostFunction):
 
 
 class FullyConnected(Layer):
+    """
+    A fully connected network layer.
+    """
     def __init__(
         self, 
         input_shape: Iterable[int],
@@ -360,12 +363,12 @@ class FullyConnected(Layer):
         z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
         return self.activation.eval(z)
 
-    def backpropagate(self, delta):
+    def backpropagate(self, x, delta):
         assert delta.dtype == real_dtype, f"{delta.dtype}"
 
         w_T = vec.transpose_2d(self._weight)
-        dCda = w_T @ delta
-        return dCda
+        dCdz = w_T @ delta
+        return dCdz
     
     def __str__(self):
         return f"fully connected: {self.input_shape} -> {self.output_shape} ({self.num_params})"
@@ -373,9 +376,9 @@ class FullyConnected(Layer):
 
 class Convolution(Layer):
     """
-    Note that the definition of convolution is correlating a kernel in reversed order, but in the field of ML
-    I noticed that almost all the sources that I could find uses correlation instead. So here follows the same
-    convention, namely, using correlation in the forward pass.
+    A convolutional network layer. Note that the definition of convolution is correlating a kernel in reversed
+    order, but in the field of ML I noticed that almost all the sources that I could find uses correlation instead.
+    So here follows the same convention, namely, using correlation in the forward pass.
     """
     def __init__(
         self, 
@@ -467,7 +470,7 @@ class Convolution(Layer):
         z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
         return self.activation.eval(z)
 
-    def backpropagate(self, delta):
+    def backpropagate(self, x, delta):
         assert delta.dtype == real_dtype, f"{delta.dtype}"
 
         delta = delta.reshape(self.output_shape)
@@ -478,17 +481,119 @@ class Convolution(Layer):
         reversed_k = np.flip(self._weight, axis=flip_axes)
         pad_shape = np.subtract(self._kernel_shape, 1)
         dilated_delta = vec.dilate(delta, self._stride_shape, pad_shape=pad_shape)
-        dCda = np.zeros(self.input_shape, dtype=delta.dtype)
+        dCdz = np.zeros(self.input_shape, dtype=delta.dtype)
         for output_channel in range(self.output_shape[-3]):
             k = reversed_k[output_channel]
             d = dilated_delta[np.newaxis, output_channel, ...]
-            dCda += vec.correlate(d, k)
+            dCdz += vec.correlate(d, k)
 
-        return dCda.reshape(self.input_vector_shape)
+        return dCdz.reshape(self.input_vector_shape)
     
     def __str__(self):
         kernel_info = "x".join(str(ks) for ks in self._kernel_shape)
         return f"{kernel_info} convolution: {self.input_shape} -> {self.output_shape} ({self.num_params})"
+
+
+class Pool(Layer):
+    """
+    A max pooling layer.
+    """
+    def __init__(
+        self, 
+        input_shape: Iterable[int],
+        kernel_shape: Iterable[int],
+        mode: vec.PoolingMode=vec.PoolingMode.MAX,
+        stride_shape: Iterable[int]=None):
+        """
+        @param kernel_shape Pool dimensions.
+        @param stride_shape Stride dimensions. The shape must be broadcastable to `kernel_shape` or being `None`.
+        If `None`, will default to `kernel_shape`.
+        """
+        super().__init__()
+        
+        stride_shape = kernel_shape if stride_shape is None else np.broadcast_to(stride_shape, len(kernel_shape))
+
+        self._input_shape = np.array(input_shape)
+        self._output_shape = np.array(vec.pool_shape(input_shape, kernel_shape, stride_shape))
+        self._kernel_shape = np.array(kernel_shape)
+        self._rcp_num_kernel_elements = np.reciprocal(self._kernel_shape.prod(), dtype=real_type)
+        self._mode = mode
+        self._stride_shape = np.array(stride_shape)
+
+    @property
+    def bias(self):
+        return None
+    
+    @property
+    def weight(self):
+        return None
+    
+    @property
+    def activation(self):
+        return None
+    
+    @property
+    def input_shape(self):
+        return self._input_shape
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+    
+    def weighted_input(self, x):
+        x = x.reshape(self.input_shape)
+        z = vec.pool(x, self._kernel_shape, self._stride_shape, self._mode)
+
+        assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
+        return z
+    
+    def update_params(self, bias, weight):
+        pass
+
+    def derived_params(self, x, delta):
+        return (None, None)
+
+    def feedforward(self, x, **kwargs):
+        """
+        @param kwargs 'z': `weighted_input` of this layer (`x` will be ignored).
+        """
+        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
+        return z
+
+    def backpropagate(self, x, delta):
+        assert delta.dtype == real_dtype, f"{delta.dtype}"
+
+        x = delta.reshape(self.input_shape)
+        delta = delta.reshape(self.output_shape)
+        x_pool_view = vec.sliding_window_view(x, self._kernel_shape, self._stride_shape)
+
+        dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
+        dCdx_pool_view = vec.sliding_window_view(dCdx, self._kernel_shape, self._stride_shape, is_writeable=True)
+        for pool_idx in np.ndindex(self.output_shape):
+            pool_idx = np.array(pool_idx)
+            x_pool = x_pool_view[*pool_idx]
+            dCdx_pool = dCdx_pool_view[*pool_idx]
+
+            # Lots of indexing here, make sure we are getting expected shapes
+            assert np.array_equal(x_pool.shape, self._kernel_shape), f"shapes: {x_pool.shape}, {self._kernel_shape}"
+            assert np.array_equal(x_pool.shape, dCdx_pool.shape), f"shapes: {x_pool.shape}, {dCdx_pool.shape}"
+            
+            match self._mode:
+                # Gradient only propagate to the max element (think of an imaginary weight of 1, non-max element
+                # has 0 weight)
+                case vec.PoolingMode.MAX:
+                    dCdx_pool.flat[x_pool.argmax()] = delta[pool_idx]
+                # Similar to the case of max pooling, average pooling is equivalent to an imaginary weight of
+                # the reciprocal of number of pool elements
+                case vec.PoolingMode.AVERAGE:
+                    dCdx_pool += delta[pool_idx] * self._rcp_num_kernel_elements
+                case _:
+                    raise ValueError("unknown pooling mode specified")
+
+        return dCdx.reshape(self.input_vector_shape)
+    
+    def __str__(self):
+        return f"pool {self._mode}: {self.input_shape} -> {self.output_shape} (0)"
 
 
 class Network:
@@ -504,6 +609,9 @@ class Network:
             layer_info += f"{str(layer)}\n"
             total_params += layer.num_params
         print(f"Network layers ({total_params} parameters):\n{layer_info}")
+
+        if not self._has_valid_connections():
+            raise ValueError("network layers does not have valid connections")
 
     def feedforward(self, x):
         """
@@ -689,7 +797,7 @@ class Network:
         for layer_idx in reversed(range(0, self.num_layers - 2)):
             layer = self.hidden_layers[layer_idx]
             next_layer = self.hidden_layers[layer_idx + 1]
-            delta = next_layer.backpropagate(delta)
+            delta = next_layer.backpropagate(activations[layer_idx + 1], delta)
             dadz = layer.activation.jacobian(zs[layer_idx])
             dadz_T = vec.transpose_2d(dadz)
             delta = dadz_T @ delta
@@ -706,3 +814,12 @@ class Network:
                 delta = delta / delta_norm * gradient_clip_norm
                 print(f"clipped {delta}")
         return delta
+    
+    def _has_valid_connections(self):
+        if len(self.hidden_layers) <= 1:
+            return True
+
+        for layer, prev_layer in zip(self.hidden_layers[1:], self.hidden_layers[:-1]):
+            if not np.array_equal(layer.input_shape, prev_layer.output_shape):
+                return False
+        return True
