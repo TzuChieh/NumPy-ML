@@ -1,4 +1,5 @@
-import vector as vec
+import common as com
+import common.vector as vec
 
 import numpy as np
 import pytest
@@ -38,7 +39,7 @@ def test_pool_shape_nd(matrix_shape, kernel_shape, stride_shape, expected):
     (np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]]), (1, 2), (2, 1), np.array([[2, 3], [8, 9]])),
 ])
 def test_max_pool_2d(matrix, kernel_shape, stride_shape, expected):
-    result = vec.pool(matrix, kernel_shape, stride_shape, mode=vec.PoolingMode.MAX)
+    result = vec.pool(matrix, kernel_shape, stride_shape, mode=com.PoolingMode.MAX)
     assert np.array_equal(result, expected)
     
 @pytest.mark.parametrize(
@@ -53,6 +54,6 @@ def test_max_pool_2d(matrix, kernel_shape, stride_shape, expected):
     (np.arange(10), (10,), (-654,), [4.5]),
 ])
 def test_average_pool_2d(matrix, kernel_shape, stride_shape, expected):
-    result = vec.pool(matrix, kernel_shape, stride_shape, mode=vec.PoolingMode.AVERAGE)
+    result = vec.pool(matrix, kernel_shape, stride_shape, mode=com.PoolingMode.AVERAGE)
     assert np.array_equal(result, expected)
     

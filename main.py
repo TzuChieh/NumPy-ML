@@ -1,8 +1,8 @@
 import idx_file
-import vector as vec
-from model import Network
-from model import FullyConnected, Convolution, Pool
-from model import Sigmoid, Softmax, ReLU, Tanh
+import common as com
+from model.network import Network
+from model.layer import FullyConnected, Convolution, Pool
+from model.activation import Sigmoid, Softmax, ReLU, Tanh
 
 import random
 
@@ -45,7 +45,7 @@ training_data = training_data[:50000]
 #     [FullyConnected(num_image_pixels, 100), FullyConnected(100, 10)])
 fc1 = FullyConnected(image_shape, (1, 10, 10), activation=Tanh())
 cov1 = Convolution(fc1.output_shape, (5, 5), 2)
-mp1 = Pool(cov1.output_shape, (2, 1, 1), vec.PoolingMode.MAX)
+mp1 = Pool(cov1.output_shape, (2, 1, 1), com.PoolingMode.MAX)
 fc2 = FullyConnected(mp1.output_shape, (1, 10, 1), activation=Softmax())
 network = Network([fc1, cov1, mp1, fc2])
 # network = Network([num_image_pixels, 10])

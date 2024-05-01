@@ -1,4 +1,4 @@
-from enum import Enum
+import common as com
 
 import numpy as np
 import numpy.typing as np_type
@@ -13,11 +13,6 @@ def _make_kernel_dim_to_einsum_correlation_expr():
     return result
 
 _kernel_dim_to_einsum_correlation_expr = _make_kernel_dim_to_einsum_correlation_expr()
-
-
-class PoolingMode(Enum):
-    MAX = 1
-    AVERAGE = 2
 
 
 def zeros_from(m: np_type.NDArray):
@@ -130,7 +125,7 @@ def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,
     assert np.array_equal(correlated.shape, strided_view.shape[:-nd]), f"shapes: {correlated.shape}, {strided_view.shape}"
     return correlated
 
-def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: PoolingMode):
+def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: com.PoolingMode):
     """
     Perform pooling operation on the matrix according to the specified shapes. Will compute with the pool's dimensions
     (broadcast the rest).
@@ -140,9 +135,9 @@ def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: PoolingMode)
     nd = len(kernel_shape)
     strided_view = sliding_window_view(matrix, kernel_shape, stride_shape)
     match mode:
-        case PoolingMode.MAX:
+        case com.PoolingMode.MAX:
             pooled = strided_view.max(axis=tuple(di for di in range(-nd, 0)))
-        case PoolingMode.AVERAGE:
+        case com.PoolingMode.AVERAGE:
             pooled = strided_view.mean(axis=tuple(di for di in range(-nd, 0)))
         case _:
             raise ValueError("unknown pooling mode specified")

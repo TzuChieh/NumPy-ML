@@ -20,7 +20,9 @@ This is my testground for the basics of machine learning. The implementation is 
 
 As mentioned earlier, the only required third-party library is Numpy. Additional libraries can be installed to support more functionalities (see `./requirement_extra.txt`). To install all dependencies in one go, pick the requirement files of your choice and execute (using two files as an example)
 
-> `pip install -r requirement1.txt -r requirement2.txt`
+```Shell
+pip install -r requirement1.txt -r requirement2.txt
+```
 
 ## Database
 

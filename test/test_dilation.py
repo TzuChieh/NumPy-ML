@@ -1,4 +1,4 @@
-import vector as vec
+import common.vector as vec
 
 import numpy as np
 import pytest
