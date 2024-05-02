@@ -133,8 +133,8 @@ class Layer(ABC):
         Randomly set initial parameters. The random values forms a standard normal distribution.
         """
         rng = np.random.default_rng()
-        b = rng.standard_normal(self.bias.shape, dtype=com.real_type)
-        w = rng.standard_normal(self.weight.shape, dtype=com.real_type)
+        b = rng.standard_normal(self.bias.shape, dtype=com.REAL_TYPE)
+        w = rng.standard_normal(self.weight.shape, dtype=com.REAL_TYPE)
         self.update_params(b, w)
 
     def init_scaled_normal_params(self):
@@ -143,8 +143,8 @@ class Layer(ABC):
         """
         rng = np.random.default_rng()
         nx = self.input_vector_shape[-2]
-        b = rng.standard_normal(self.bias.shape, dtype=com.real_type)
-        w = rng.standard_normal(self.weight.shape, dtype=com.real_type) / np.sqrt(nx, dtype=com.real_type)
+        b = rng.standard_normal(self.bias.shape, dtype=com.REAL_TYPE)
+        w = rng.standard_normal(self.weight.shape, dtype=com.REAL_TYPE) / np.sqrt(nx, dtype=com.REAL_TYPE)
         self.update_params(b, w)
 
 
@@ -171,8 +171,8 @@ class FullyConnected(Layer):
         nc = self.input_shape[-3]
         ny = self.output_vector_shape[-2]
         nx = self.input_vector_shape[-2]
-        self._bias = np.zeros((nc, ny, 1), dtype=com.real_type)
-        self._weight = np.zeros((nc, ny, nx), dtype=com.real_type)
+        self._bias = np.zeros((nc, ny, 1), dtype=com.REAL_TYPE)
+        self._weight = np.zeros((nc, ny, nx), dtype=com.REAL_TYPE)
 
         self.init_scaled_normal_params()
 
@@ -203,8 +203,8 @@ class FullyConnected(Layer):
         return z
     
     def update_params(self, bias, weight):
-        assert self._bias.dtype == com.real_dtype, f"{self._bias.dtype}"
-        assert self._weight.dtype == com.real_dtype, f"{self._weight.dtype}"
+        assert self._bias.dtype == com.REAL_DTYPE, f"{self._bias.dtype}"
+        assert self._weight.dtype == com.REAL_DTYPE, f"{self._weight.dtype}"
 
         self._bias = bias
         self._weight = weight
@@ -223,7 +223,7 @@ class FullyConnected(Layer):
         return self.activation.eval(z)
 
     def backpropagate(self, x, delta):
-        assert delta.dtype == com.real_dtype, f"{delta.dtype}"
+        assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
         w_T = vec.transpose_2d(self._weight)
         dCdx = w_T @ delta
@@ -266,8 +266,8 @@ class Convolution(Layer):
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
-        self._bias = np.zeros((output_features, 1, 1, 1), dtype=com.real_dtype)
-        self._weight = np.zeros((output_features, *kernel_shape), dtype=com.real_type)
+        self._bias = np.zeros((output_features, 1, 1, 1), dtype=com.REAL_TYPE)
+        self._weight = np.zeros((output_features, *kernel_shape), dtype=com.REAL_TYPE)
 
         self.init_scaled_normal_params()
 
@@ -312,7 +312,7 @@ class Convolution(Layer):
 
         # Backpropagation for bias is per-feature summation of gradient
         sum_axes = (-2, -1)
-        del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=com.real_type).reshape(self.bias.shape)
+        del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=delta.dtype).reshape(self.bias.shape)
 
         # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
         dilated_delta = vec.dilate(delta, self._stride_shape)
@@ -331,7 +331,7 @@ class Convolution(Layer):
         return self.activation.eval(z)
 
     def backpropagate(self, x, delta):
-        assert delta.dtype == com.real_dtype, f"{delta.dtype}"
+        assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
         delta = delta.reshape(self.output_shape)
 
@@ -379,7 +379,7 @@ class Pool(Layer):
         self._input_shape = np.array(input_shape)
         self._output_shape = np.array(vec.pool_shape(input_shape, kernel_shape, stride_shape))
         self._kernel_shape = np.array(kernel_shape)
-        self._rcp_num_kernel_elements = np.reciprocal(self._kernel_shape.prod(), dtype=com.real_type)
+        self._rcp_num_kernel_elements = np.reciprocal(self._kernel_shape.prod(), dtype=com.REAL_TYPE)
         self._mode = mode
         self._stride_shape = np.array(stride_shape)
 
@@ -424,7 +424,7 @@ class Pool(Layer):
         return z
 
     def backpropagate(self, x, delta):
-        assert delta.dtype == com.real_dtype, f"{delta.dtype}"
+        assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
         x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)

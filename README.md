@@ -1,4 +1,4 @@
-# NumPy-ML
+# Simple-NumPy-ML
 
 This is my testground for the basics of machine learning. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). This project is inspired by a collection of resources that I found useful on the Internet:
 
@@ -19,12 +19,12 @@ This is my testground for the basics of machine learning. The implementation is 
 
 ## Additional Dependencies
 
-As mentioned earlier, the only required third-party library is Numpy. Additional libraries can be installed to support more functionalities (see `./requirement_extra.txt`). To install all dependencies in one go, pick the requirement files of your choice and execute (using two files as an example)
+As mentioned earlier, the only required third-party library is Numpy. Additional libraries can be installed to support more functionalities (see `./requirements_extra.txt`). To install all dependencies in one go, pick the requirement files of your choice and execute (using two files as an example)
 
 ```Shell
-pip install -r requirement1.txt -r requirement2.txt
+pip install -r requirements.txt -r requirements_extra.txt
 ```
 
-## Database
+## Datasets
 
 The MNIST dataset for training and evaluation of handwritten digits are obtained from [Yann LeCun's MNIST page](http://yann.lecun.com/exdb/mnist/).

@@ -39,7 +39,7 @@ class Quadratic(CostFunction):
         Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
         to make its derived form cleaner (for convenience).
         """
-        C = com.real_type(0.5) * np.linalg.norm(a - y) ** 2
+        C = com.REAL_TYPE(0.5) * np.linalg.norm(a - y) ** 2
         return C
     
     def derived_eval(self, a, y):
@@ -66,4 +66,4 @@ class CrossEntropy(CostFunction):
         # We modify `a` similar to Keras: https://github.com/tensorflow/tensorflow/blob/066e226b3ed6db054cdb5ed0ff2453b8c1ffb3f6/tensorflow/python/keras/backend.py#L5046.
         # `np.nan_to_num()` could be an alternative solution, but it is more intrusive and needs to be tailored
         # for each method.
-        return np.clip(a, com.epsilon, 1 - com.epsilon)
+        return np.clip(a, com.EPSILON, 1 - com.EPSILON)
