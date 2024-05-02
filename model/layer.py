@@ -64,7 +64,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def weighted_input(self, x: np_type.NDArray):
+    def weighted_input(self, x: np_type.NDArray) -> np_type.NDArray:
         """
         @param x The input vector.
         @return The weighted input vector (z).
@@ -90,7 +90,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def feedforward(self, x: np_type.NDArray, **kwargs):
+    def feedforward(self, x: np_type.NDArray, **kwargs) -> np_type.NDArray:
         """
         @param x The input vector.
         @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
@@ -99,7 +99,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def backpropagate(self, x, delta: np_type.NDArray):
+    def backpropagate(self, x: np_type.NDArray, delta: np_type.NDArray) -> np_type.NDArray:
         """
         @param x The input vector.
         @param delta The error vector (dCdz).
