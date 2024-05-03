@@ -11,6 +11,7 @@ This is my testground for the basics of machine learning. The implementation is 
 * S. Do.'s article [Vectorized convolution operation using NumPy](https://medium.com/latinxinai/vectorized-convolution-operation-using-numpy-b122fd52fba3) explains how to use Einstein summation convention for convolution perfectly
 * Vincent Dumoulin and Francesco Visin's [A guide to convolution arithmetic for deep learning](https://arxiv.org/abs/1603.07285)
 * Jason Brownlee's [A Gentle Introduction to Dropout for Regularizing Deep Neural Networks](https://machinelearningmastery.com/dropout-for-regularizing-deep-neural-networks/) is an informative overview of dropout with lots of references
+* [This excellent answer](https://datascience.stackexchange.com/questions/117082/how-can-i-implement-dropout-in-scikit-learn/117083#117083) by Conner explains the practical aspect of dropout clearly
 
 ## Some Notes
 
@@ -19,7 +20,7 @@ This is my testground for the basics of machine learning. The implementation is 
 
 ## Additional Dependencies
 
-As mentioned earlier, the only required third-party library is Numpy. Additional libraries can be installed to support more functionalities (see `./requirements_extra.txt`). To install all dependencies in one go, pick the requirement files of your choice and execute (using two files as an example)
+As mentioned earlier, the only required third-party library is NumPy. Additional libraries can be installed to support more functionalities (see `./requirements_extra.txt`). To install all dependencies in one go, pick the requirement files of your choice and execute (using two files as an example)
 
 ```Shell
 pip install -r requirements.txt -r requirements_extra.txt

@@ -10,18 +10,16 @@ from model.cost import CostFunction, CrossEntropy
 from model.layer import Layer
 
 import numpy as np
-import numpy.typing as np_typing
 
 import random
 import sys
-from typing import Iterable
 from timeit import default_timer as timer
 from datetime import timedelta
 from concurrent import futures
 
 
 class Network:
-    def __init__(self, hidden_layers: Iterable[Layer], cost: CostFunction=CrossEntropy()):
+    def __init__(self, hidden_layers: list[Layer], cost: CostFunction=CrossEntropy()):
         self._hidden_layers = hidden_layers
         self.num_layers = len(hidden_layers) + 1
         self.cost = cost
@@ -175,7 +173,7 @@ class Network:
         return [layer.weight for layer in self.hidden_layers]
     
     @property
-    def hidden_layers(self):
+    def hidden_layers(self) -> list[Layer]:
         """
         @return List of hidden layers in this network.
         """
@@ -223,14 +221,15 @@ def _backpropagation(
     """
     del_bs = [vec.zeros_from(b) for b in network.biases]
     del_ws = [vec.zeros_from(w) for w in network.weights]
+    cache = {}
     
     # Forward pass: store activations & weighted inputs (`zs`) layer by layer
     activations = [vec.vector_2d(x)]
     zs = []
     for layer in network.hidden_layers:
-        z = layer.weighted_input(activations[-1])
+        z = layer.weighted_input(activations[-1], cache)
         zs.append(z)
-        activations.append(layer.feedforward(activations[-1], z=z))
+        activations.append(layer.feedforward(activations[-1], cache))
 
     # Backward pass (initial delta term, must take cost function into account)
     dCda = network.cost.derived_eval(activations[-1], vec.vector_2d(y))
@@ -240,16 +239,16 @@ def _backpropagation(
     delta = _gradient_clip(delta, gradient_clip_norm)
 
     # Backward pass (hidden layers)
-    del_bs[-1], del_ws[-1] = network.hidden_layers[-1].derived_params(activations[-2], delta)
+    del_bs[-1], del_ws[-1] = network.hidden_layers[-1].derived_params(activations[-2], delta, cache)
     for layer_idx in reversed(range(0, network.num_layers - 2)):
         layer = network.hidden_layers[layer_idx]
         next_layer = network.hidden_layers[layer_idx + 1]
-        delta = next_layer.backpropagate(activations[layer_idx + 1], delta)
+        delta = next_layer.backpropagate(activations[layer_idx + 1], delta, cache)
         dadz = layer.activation.jacobian(zs[layer_idx])
         dadz_T = vec.transpose_2d(dadz)
         delta = dadz_T @ delta
         delta = _gradient_clip(delta, gradient_clip_norm)
-        del_bs[layer_idx], del_ws[layer_idx] = layer.derived_params(activations[layer_idx], delta)
+        del_bs[layer_idx], del_ws[layer_idx] = layer.derived_params(activations[layer_idx], delta, cache)
 
     return (del_bs, del_ws)
 
@@ -302,7 +301,7 @@ def _gradient_clip(delta, gradient_clip_norm):
             delta = delta / delta_norm * gradient_clip_norm
     return delta
 
-def _has_valid_connections(layers: Iterable[Layer]):
+def _has_valid_connections(layers: list[Layer]):
     """
     @return Whether the specified layers properly connect with each other.
     """

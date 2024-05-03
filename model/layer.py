@@ -11,8 +11,16 @@ from model.activation import ActivationFunction, Sigmoid, Identity
 import numpy as np
 import numpy.typing as np_type
 
+import typing
 from abc import ABC, abstractmethod
-from typing import Iterable
+
+
+"""
+Temporary storage type for implementation defined extra arguments (e.g., to facilitate the calculation). A single
+cache instance can be used across multiple layers by first using the layer instance as key.
+@see `create_layer_cache()`
+"""
+type LayerCache = typing.Dict[object, typing.Dict]
 
 
 class Layer(ABC):
@@ -22,6 +30,8 @@ class Layer(ABC):
     """
     def __init__(self):
         super().__init__()
+
+        self._is_trainable = True
 
     @property
     @abstractmethod
@@ -64,45 +74,40 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def weighted_input(self, x: np_type.NDArray) -> np_type.NDArray:
-        """
-        @param x The input vector.
-        @return The weighted input vector (z).
-        """
-        pass
-
-    @abstractmethod
     def update_params(self, bias: np_type.NDArray, weight: np_type.NDArray):
         """
+        Update layer parameters.
         @param bias The new bias parameters.
         @param weight The new weight parameters.
         """
         pass
 
     @abstractmethod
-    def derived_params(self, x: np_type.NDArray, delta: np_type.NDArray):
+    def weighted_input(self, x: np_type.NDArray, cache: LayerCache) -> np_type.NDArray:
+        """
+        @param x The input vector.
+        @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
+        @return The weighted input vector (z).
+        """
+        pass
+
+    @abstractmethod
+    def derived_params(self, x: np_type.NDArray, delta: np_type.NDArray, cache: LayerCache):
         """
         @param x The input vector.
         @param delta The error vector (dCdz).
+        @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return Gradient of `bias` and `weight` in the form `(del_b, del_w)`. A derived term could be an empty array
         if there is no such parameter (e.g., a layer with empty bias could return `(empty array, del_w)`).
         """
         pass
 
     @abstractmethod
-    def feedforward(self, x: np_type.NDArray, **kwargs) -> np_type.NDArray:
-        """
-        @param x The input vector.
-        @param kwargs Implementation defined extra arguments (e.g., to facilitate the calculation).
-        @return Activation vector of the layer.
-        """
-        pass
-
-    @abstractmethod
-    def backpropagate(self, x: np_type.NDArray, delta: np_type.NDArray) -> np_type.NDArray:
+    def backpropagate(self, x: np_type.NDArray, delta: np_type.NDArray, cache: LayerCache) -> np_type.NDArray:
         """
         @param x The input vector.
         @param delta The error vector (dCdz).
+        @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return The error vector (dCdx); or equivalently, "dCda'" (where "a'" is the activation from previous layer).
         """
         pass
@@ -127,6 +132,26 @@ class Layer(ABC):
         @return Number of learnable parameters.
         """
         return self.bias.size + self.weight.size
+    
+    @property
+    def is_trainable(self) -> bool:
+        """
+        @return Whether the layer is trainable or not. By default, the layer is trainable. Trainability can be
+        updated by calling `freeze()` and `unfreeze()`.
+        """
+        return self._is_trainable
+
+    def feedforward(self, x, cache: LayerCache=None):
+        """
+        @param x The input vector.
+        @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
+        @return Activation vector of the layer.
+        """
+        z = self.try_get_from_cache(cache, 'z')
+        if z is None:
+            z = self.weighted_input(x, cache)
+
+        return self.activation.eval(z)
 
     def init_normal_params(self):
         """
@@ -147,6 +172,33 @@ class Layer(ABC):
         w = rng.standard_normal(self.weight.shape, dtype=com.REAL_TYPE) / np.sqrt(nx, dtype=com.REAL_TYPE)
         self.update_params(b, w)
 
+    def freeze(self):
+        """
+        Update the layer such that it is untrainable.
+        """
+        self._is_trainable = False
+
+    def unfreeze(self):
+        """
+        Update the layer such that it is trainable.
+        """
+        self._is_trainable = True
+
+    def try_cache(self, cache: LayerCache, name: str, value):
+        if cache is None:
+            return
+        
+        if self not in cache:
+            cache[self] = {}
+        
+        cache[self][name] = value
+
+    def try_get_from_cache(self, cache: LayerCache, name: str):
+        if cache is None or self not in cache or name not in cache[self]:
+            return None
+        
+        return cache[self][name]
+
 
 class FullyConnected(Layer):
     """
@@ -154,8 +206,8 @@ class FullyConnected(Layer):
     """
     def __init__(
         self, 
-        input_shape: Iterable[int],
-        output_shape: Iterable[int], 
+        input_shape: typing.Iterable[int],
+        output_shape: typing.Iterable[int], 
         activation: ActivationFunction=Sigmoid()):
         """
         @param input_shape Input dimensions, in (number of channels, height, width).
@@ -195,34 +247,36 @@ class FullyConnected(Layer):
     @property
     def output_shape(self):
         return self._output_shape
-
-    def weighted_input(self, x):
-        b = self._bias
-        w = self._weight
-        z = w @ x + b
-        return z
     
     def update_params(self, bias, weight):
+        assert self.is_trainable
         assert self._bias.dtype == com.REAL_DTYPE, f"{self._bias.dtype}"
         assert self._weight.dtype == com.REAL_DTYPE, f"{self._weight.dtype}"
+        assert np.array_equal(self._bias.shape, bias.shape), f"shapes: {self._bias.shape}, {bias.shape}"
+        assert np.array_equal(self._weight.shape, weight.shape), f"shapes: {self._weight.shape}, {weight.shape}"
 
         self._bias = bias
         self._weight = weight
 
-    def derived_params(self, x, delta):
+    def weighted_input(self, x, cache):
+        z = self.try_get_from_cache(cache, 'z')
+        if z is not None:
+            return z
+
+        b = self._bias
+        w = self._weight
+        z = w @ x + b
+
+        self.try_cache(cache, 'z', z)
+        return z
+
+    def derived_params(self, x, delta, cache):
         del_b = np.copy(delta)
         x_T = vec.transpose_2d(x)
         del_w = delta @ x_T
         return (del_b, del_w)
 
-    def feedforward(self, x, **kwargs):
-        """
-        @param kwargs 'z': `weighted_input` of this layer (`x` will be ignored).
-        """
-        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
-        return self.activation.eval(z)
-
-    def backpropagate(self, x, delta):
+    def backpropagate(self, x, delta, cache):
         assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
         w_T = vec.transpose_2d(self._weight)
@@ -241,10 +295,10 @@ class Convolution(Layer):
     """
     def __init__(
         self, 
-        input_shape: Iterable[int],
-        kernel_shape: Iterable[int],
+        input_shape: typing.Iterable[int],
+        kernel_shape: typing.Iterable[int],
         output_features: int,
-        stride_shape: Iterable[int]=(1,), 
+        stride_shape: typing.Iterable[int]=(1,), 
         activation: ActivationFunction=Sigmoid()):
         """
         @param kernel_shape Kernel dimensions, in (height, width). Will automatically infer the number of channels
@@ -291,7 +345,17 @@ class Convolution(Layer):
     def output_shape(self):
         return self._output_shape
     
-    def weighted_input(self, x):
+    def update_params(self, bias, weight):
+        assert self.is_trainable
+
+        self._bias = bias
+        self._weight = weight
+
+    def weighted_input(self, x, cache):
+        z = self.try_get_from_cache(cache, 'z')
+        if z is not None:
+            return z
+
         x = x.reshape(self.input_shape)
 
         z = np.zeros(self.output_shape, dtype=x.dtype)
@@ -299,14 +363,12 @@ class Convolution(Layer):
             b = self._bias[output_channel]
             k = self._weight[output_channel]
             z[output_channel] = vec.correlate(x, k, self._stride_shape) + b
+        z = z.reshape(self.output_vector_shape)
 
-        return z.reshape(self.output_vector_shape)
-    
-    def update_params(self, bias, weight):
-        self._bias = bias.reshape(self._bias.shape)
-        self._weight = weight.reshape(self._weight.shape)
+        self.try_cache(cache, 'z', z)
+        return z
 
-    def derived_params(self, x, delta):
+    def derived_params(self, x, delta, cache):
         x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)
 
@@ -323,14 +385,7 @@ class Convolution(Layer):
 
         return (del_b, del_w)
 
-    def feedforward(self, x, **kwargs):
-        """
-        @param kwargs 'z': `weighted_input` of this layer (`x` will be ignored).
-        """
-        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
-        return self.activation.eval(z)
-
-    def backpropagate(self, x, delta):
+    def backpropagate(self, x, delta, cache):
         assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
         delta = delta.reshape(self.output_shape)
@@ -363,10 +418,10 @@ class Pool(Layer):
     """
     def __init__(
         self, 
-        input_shape: Iterable[int],
-        kernel_shape: Iterable[int],
+        input_shape: typing.Iterable[int],
+        kernel_shape: typing.Iterable[int],
         mode: com.PoolingMode=com.PoolingMode.MAX,
-        stride_shape: Iterable[int]=None):
+        stride_shape: typing.Iterable[int]=None):
         """
         @param kernel_shape Pool dimensions.
         @param stride_shape Stride dimensions. The shape must be broadcastable to `kernel_shape` or being `None`.
@@ -403,27 +458,26 @@ class Pool(Layer):
     def output_shape(self):
         return self._output_shape
     
-    def weighted_input(self, x):
-        x = x.reshape(self.input_shape)
-        z = vec.pool(x, self._kernel_shape, self._stride_shape, self._mode)
-
-        assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
-        return z.reshape(self.output_vector_shape)
-    
     def update_params(self, bias, weight):
         pass
 
-    def derived_params(self, x, delta):
-        return (np.array([]), np.array([]))
+    def weighted_input(self, x, cache):
+        z = self.try_get_from_cache(cache, 'z')
+        if z is not None:
+            return z
 
-    def feedforward(self, x, **kwargs):
-        """
-        @param kwargs 'z': `weighted_input` of this layer (`x` will be ignored).
-        """
-        z = kwargs['z'] if 'z' in kwargs else self.weighted_input(x)
+        x = x.reshape(self.input_shape)
+        z = vec.pool(x, self._kernel_shape, self._stride_shape, self._mode)
+        assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
+        z = z.reshape(self.output_vector_shape)
+
+        self.try_cache(cache, 'z', z)
         return z
 
-    def backpropagate(self, x, delta):
+    def derived_params(self, x, delta, cache):
+        return (np.array([]), np.array([]))
+
+    def backpropagate(self, x, delta, cache):
         assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
         x = x.reshape(self.input_shape)
