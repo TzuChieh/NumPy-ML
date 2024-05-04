@@ -15,6 +15,12 @@ def _make_kernel_dim_to_einsum_correlation_expr():
 _kernel_dim_to_einsum_correlation_expr = _make_kernel_dim_to_einsum_correlation_expr()
 
 
+def is_vector_2d(m: np_type.NDArray) -> bool:
+    """
+    @return Whether the last two dimensions of the matrix is a column vector.
+    """
+    return len(m.shape) >= 2 and m.shape[-1] == 1
+
 def zeros_from(m: np_type.NDArray) -> np_type.NDArray:
     """
     Same as `numpy.zeros()`, except that settings are inferred from `m`.
@@ -41,7 +47,7 @@ def diag_from_vector_2d(m: np_type.NDArray) -> np_type.NDArray:
     Create diagonal matrices from column vectors (the last two dimensions of a matrix). Other dimensions
     remain unchanged.
     """
-    assert len(m.shape) >= 2 and m.shape[-1] == 1, f"`m` must be column vectors (shape: {m.shape})"
+    assert is_vector_2d(m), f"`m` must be column vectors (shape: {m.shape})"
 
     # Column vector elements are along axis=-2, use them to create diagonal matrices
     diag = np.apply_along_axis(np.diagflat, -2, m)

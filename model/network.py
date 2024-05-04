@@ -35,14 +35,28 @@ class Network:
         if not _has_valid_connections(self.hidden_layers):
             raise ValueError("network layers does not have valid connections")
 
-    def feedforward(self, x):
+    def feedforward(self, x, is_training):
         """
         @param x The input vector.
+        @param is_training `True` if the intent is to train the network, `False` for inference.
         @return The output vector.
         """
+        # Freeze all layers if not for training
+        if not is_training:
+            layer_trainabilities = [layer.is_trainable for layer in self.hidden_layers]
+            for layer in self.hidden_layers:
+                layer.freeze()
+
         a = x
         for layer in self.hidden_layers:
             a = layer.feedforward(a)
+        
+        # Unfreeze originally trainable layers
+        if not is_training:
+            for layer, was_trainable in zip(self.hidden_layers, layer_trainabilities):
+                if was_trainable:
+                    layer.unfreeze()
+
         return a
     
     def stochastic_gradient_descent(
@@ -125,16 +139,21 @@ class Network:
 
     def performance(self, dataset):
         """
+        Evaluate the effectiveness of the network.
         @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
         @return A tuple that contains (in order): number of correct outputs, fraction of correct outputs.
         """
-        results = [(np.argmax(self.feedforward(vec.vector_2d(x))), np.argmax(y)) for x, y in dataset]
+        results = [
+            (np.argmax(self.feedforward(vec.vector_2d(x), is_training=False)), np.argmax(y))
+            for x, y in dataset]
+        
         num_right_answers = sum(1 for network_y, y in results if network_y == y)
         num_data = len(dataset)
         return (num_right_answers, num_right_answers / num_data)
     
     def total_cost(self, dataset, lambba):
         """
+        Compute total cost of the network for a given dataset. Do not use this for training.
         @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
         @param lambba The regularization parameter.
         @return Total cost of the dataset.
@@ -142,7 +161,7 @@ class Network:
         cost = 0.0
         rcp_dataset_n = 1.0 / len(dataset)
         for x, y in dataset:
-            a = self.feedforward(vec.vector_2d(x))
+            a = self.feedforward(vec.vector_2d(x), is_training=False)
             cost += self.cost.eval(a, vec.vector_2d(y)) * rcp_dataset_n
 
         # L2 regularization term
@@ -225,7 +244,7 @@ def _backpropagation(
     
     # Forward pass: store activations & weighted inputs (`zs`) layer by layer
     activations = [vec.vector_2d(x)]
-    zs = []
+    zs = [None]
     for layer in network.hidden_layers:
         z = layer.weighted_input(activations[-1], cache)
         zs.append(z)
@@ -233,9 +252,7 @@ def _backpropagation(
 
     # Backward pass (initial delta term, must take cost function into account)
     dCda = network.cost.derived_eval(activations[-1], vec.vector_2d(y))
-    dadz = network.hidden_layers[-1].activation.jacobian(zs[-1], a=activations[-1])
-    dadz_T = vec.transpose_2d(dadz)
-    delta = dadz_T @ dCda
+    delta = network.hidden_layers[-1].activation.jacobian_mul(zs[-1], right=dCda, a=activations[-1])
     delta = _gradient_clip(delta, gradient_clip_norm)
 
     # Backward pass (hidden layers)
@@ -244,9 +261,7 @@ def _backpropagation(
         layer = network.hidden_layers[layer_idx]
         next_layer = network.hidden_layers[layer_idx + 1]
         delta = next_layer.backpropagate(activations[layer_idx + 1], delta, cache)
-        dadz = layer.activation.jacobian(zs[layer_idx])
-        dadz_T = vec.transpose_2d(dadz)
-        delta = dadz_T @ delta
+        delta = layer.activation.jacobian_mul(zs[layer_idx + 1], right=delta, a=activations[layer_idx + 1])
         delta = _gradient_clip(delta, gradient_clip_norm)
         del_bs[layer_idx], del_ws[layer_idx] = layer.derived_params(activations[layer_idx], delta, cache)
 

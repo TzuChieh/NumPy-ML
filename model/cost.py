@@ -36,8 +36,8 @@ class CostFunction(ABC):
 class Quadratic(CostFunction):
     def eval(self, a, y):
         """
-        Basically computing the MSE between activations `a` and desired output `y`. The 0.5 multiplier is
-        to make its derived form cleaner (for convenience).
+        Basically computing the squared error between activations `a` and desired output `y`. The 0.5 multiplier
+        is to make its derived form cleaner (for convenience).
         """
         C = com.REAL_TYPE(0.5) * np.linalg.norm(a - y) ** 2
         return C

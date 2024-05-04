@@ -34,9 +34,9 @@ class LayerWrapper(Layer):
         return self._wrapped
 
 
-class Reshape(LayerWrapper):
+class FullyReshape(LayerWrapper):
     """
-    Reshapes inputs into another shape.
+    Reshapes input and output into another shape.
     """
     def __init__(
         self,
@@ -59,7 +59,7 @@ class Reshape(LayerWrapper):
         
         if (np.array_equal(self.input_shape, self.wrapped.input_shape) or 
             np.array_equal(self.output_shape, self.wrapped.output_shape)):
-            print("A reshape layer wrapper effectively does nothing, consider removing it.")
+            print("A fully reshape layer wrapper effectively does nothing, consider removing it.")
 
     @property
     def bias(self):
@@ -103,7 +103,7 @@ class Reshape(LayerWrapper):
         return wrapped_dCdx.reshape(self.input_vector_shape)
     
     def __str__(self):
-        return f"reshape: {self.input_shape} -> {self.output_shape} ({self.wrapped})"
+        return f"fully reshape: {self.input_shape} -> {self.output_shape} ({self.wrapped})"
 
 
 class Dropout(LayerWrapper):
@@ -123,7 +123,7 @@ class Dropout(LayerWrapper):
         self._drop_prob = com.REAL_TYPE(drop_prob)
 
         if drop_prob <= 0.0 or 1.0 <= drop_prob:
-            print(f"drop rate is beyond [0, 1]: {drop_prob}")
+            print(f"Drop rate is beyond [0, 1]: {drop_prob}.")
 
     @property
     def bias(self):
@@ -152,13 +152,24 @@ class Dropout(LayerWrapper):
 
     def weighted_input(self, x, cache):
         if self.is_trainable:
-            drop_mask = np.random.default_rng().random(*x.shape, dtype=self._drop_prob.dtype) >= self._drop_prob
-            if cache is not None:
-                cache[self]['drop_mask'] = drop_mask
+            assert cache is not None, "dropout requires a cache to train"
+
+        # For potential repeated calls to this method to use the existing mask
+        z = self.try_get_from_cache(cache, 'z')
+        if z is not None:
+            return z
+        
+        if self.is_trainable:
+            # Create a new mask for disabling dropped input neurons; the same mask must be used throughout
+            # the corresponding forward and backward passes (to consistently drop the same input neurons)
+            drop_mask = np.random.default_rng().random(x.shape, dtype=self._drop_prob.dtype) >= self._drop_prob
+            self.try_cache(cache, 'drop_mask', drop_mask)
 
             x = self._apply_drop(x, cache)
 
         z = self.wrapped.weighted_input(x, cache)
+
+        self.try_cache(cache, 'z', z)
         return z
 
     def derived_params(self, x, delta, cache):
@@ -171,16 +182,20 @@ class Dropout(LayerWrapper):
         if self.is_trainable:
             x = self._apply_drop(x, cache)
 
-        dCdx = self.wrapped.backpropagate(self, x, delta, cache)
+        dCdx = self.wrapped.backpropagate(x, delta, cache)
         if self.is_trainable:
             dCdx = self._apply_drop(dCdx, cache)
 
         return dCdx
     
     def __str__(self):
-        return f"Dropout {(1 - self._keep_rate) * 100}% ({self.wrapped})"
+        return f"Dropout {self._drop_prob * 100}% ({self.wrapped})"
 
     def _apply_drop(self, x, cache):
+        if self.is_trainable:
+            assert cache is not None and self in cache and 'drop_mask' in cache[self], (
+                "dropout requires a cache with forward pass information to train")
+
         drop_mask = cache[self]['drop_mask']
         x = drop_mask * x
 
@@ -190,3 +205,5 @@ class Dropout(LayerWrapper):
         # have the desired signal magnitude). This also applies to backpropagation.
         rcp_keep_prob = np.reciprocal(1 - self._drop_prob, dtype=self._drop_prob.dtype)
         x *= rcp_keep_prob
+
+        return x

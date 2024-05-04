@@ -15,12 +15,12 @@ import typing
 from abc import ABC, abstractmethod
 
 
+type LayerCache = typing.Dict[object, typing.Dict]
 """
 Temporary storage type for implementation defined extra arguments (e.g., to facilitate the calculation). A single
 cache instance can be used across multiple layers by first using the layer instance as key.
 @see `create_layer_cache()`
 """
-type LayerCache = typing.Dict[object, typing.Dict]
 
 
 class Layer(ABC):
@@ -129,7 +129,7 @@ class Layer(ABC):
     @property
     def num_params(self) -> int:
         """
-        @return Number of learnable parameters.
+        @return Number of trainable parameters.
         """
         return self.bias.size + self.weight.size
     
@@ -198,6 +198,65 @@ class Layer(ABC):
             return None
         
         return cache[self][name]
+
+
+class Reshape(Layer):
+    """
+    Reshapes input into another shape.
+    """
+    def __init__(
+        self,
+        input_shape: typing.Iterable[int],
+        output_shape: typing.Iterable[int]):
+        """
+        @param input_shape Input dimensions.
+        @param output_shape Output dimensions.
+        """
+        super().__init__()
+
+        self._input_shape = np.array(input_shape)
+        self._output_shape = np.array(output_shape)
+
+        if self.input_shape.prod() != self.output_shape.prod():
+            raise ValueError(f"cannot convert input shape from {self.input_shape} to {self.output_shape}")
+        
+        if np.array_equal(self.input_shape, self.output_shape):
+            print("A reshape layer effectively does nothing, consider removing it.")
+
+    @property
+    def bias(self):
+        return np.array([])
+    
+    @property
+    def weight(self):
+        return np.array([])
+    
+    @property
+    def activation(self):
+        return Identity()
+    
+    @property
+    def input_shape(self):
+        return self._input_shape
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+    
+    def update_params(self, bias, weight):
+        pass
+    
+    def weighted_input(self, x, cache):
+        return x.reshape(self.output_vector_shape)
+
+    def derived_params(self, x, delta, cache):
+        return (np.array([]), np.array([]))
+
+    def backpropagate(self, x, delta, cache):
+        return delta.reshape(self.input_vector_shape)
+    
+    def __str__(self):
+        return f"reshape: {self.input_shape} -> {self.output_shape} (0)"
 
 
 class FullyConnected(Layer):
