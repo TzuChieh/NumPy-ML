@@ -569,3 +569,100 @@ class Pool(Layer):
     
     def __str__(self):
         return f"pool {self._mode}: {self.input_shape} -> {self.output_shape} (0)"
+
+
+class Dropout(Layer):
+    """
+    Randomly deactivate input signals to combat overfitting and potentially retain more effective features.
+    """
+    def __init__(
+        self,
+        io_shape: typing.Iterable[int],
+        drop_prob):
+        """
+        @param io_shape Input and output dimensions.
+        """
+        super().__init__()
+
+        self._io_shape = io_shape
+        self._drop_prob = com.REAL_TYPE(drop_prob)
+
+        if drop_prob <= 0.0 or 1.0 <= drop_prob:
+            print(f"Drop rate is beyond [0, 1]: {drop_prob}.")
+
+    @property
+    def bias(self):
+        return np.array([])
+    
+    @property
+    def weight(self):
+        return np.array([])
+    
+    @property
+    def activation(self):
+        return Identity()
+    
+    @property
+    def input_shape(self):
+        return self._io_shape
+
+    @property
+    def output_shape(self):
+        return self._io_shape
+    
+    def update_params(self, bias, weight):
+        pass
+
+    def weighted_input(self, x, cache):
+        if self.is_trainable:
+            assert cache is not None, "dropout requires a cache to train"
+
+        # For potential repeated calls to this method to use the existing mask
+        z = self.try_get_from_cache(cache, 'z')
+        if z is not None:
+            return z
+        
+        if self.is_trainable:
+            # Create a new mask for disabling dropped input (neuron output from previous layer); the same mask
+            # must be used throughout the corresponding forward and backward passes (to consistently drop
+            # the same set of neurons)
+            drop_mask = np.random.default_rng().random(x.shape, dtype=self._drop_prob.dtype) >= self._drop_prob
+            self.try_cache(cache, 'drop_mask', drop_mask)
+
+            x = self._apply_drop(x, cache)
+
+        z = x
+        self.try_cache(cache, 'z', z)
+        return z
+
+    def derived_params(self, x, delta, cache):
+        return (np.array([]), np.array([]))
+
+    def backpropagate(self, x, delta, cache):
+        dCdx = delta
+        if self.is_trainable:
+            dCdx = self._apply_drop(dCdx, cache)
+
+        return dCdx
+    
+    def __str__(self):
+        p = self._drop_prob
+        expected_shape = self.output_shape * p
+        return f"dropout {p * 100}%: {self.input_shape} -> {self.output_shape} (expected: {expected_shape}) (0)"
+
+    def _apply_drop(self, x, cache):
+        if self.is_trainable:
+            assert cache is not None and self in cache and 'drop_mask' in cache[self], (
+                "dropout requires a cache with forward pass information to train")
+
+        drop_mask = cache[self]['drop_mask']
+        x = drop_mask * x
+
+        # Since some inputs are disabled, we need to compensate for the reduced signal magnitude by scaling up
+        # `x` so layer activations will have the same expected value as before. This is called "inverted dropout"
+        # and only need to be done in the training stage (during inference, all inputs are activated so we already
+        # have the desired signal magnitude). This also applies to backpropagation.
+        rcp_keep_prob = np.reciprocal(1 - self._drop_prob, dtype=self._drop_prob.dtype)
+        x *= rcp_keep_prob
+
+        return x

@@ -1,8 +1,7 @@
 import idx_file
 import common as com
 from model.network import Network
-from model.layer import FullyConnected, Convolution, Pool, Reshape
-from model.layer_wrapper import Dropout
+from model.layer import FullyConnected, Convolution, Pool, Reshape, Dropout
 from model.activation import Sigmoid, Softmax, ReLU, Tanh
 
 import numpy as np
@@ -46,9 +45,9 @@ def train_basic_network():
     cov1 = Convolution(fc1.output_shape, (5, 5), 4)
     mp1 = Pool(cov1.output_shape, (2, 1, 1), com.PoolingMode.MAX)
     rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
-    fc2 = FullyConnected(rs1.output_shape, (1, 10, 1), activation=Softmax())
-    d1 = Dropout(fc2, 0.5)
-    network = Network([fc1, cov1, mp1, rs1, d1])
+    d1 = Dropout(rs1.output_shape, 0.5)
+    fc2 = FullyConnected(d1.output_shape, (1, 10, 1), activation=Softmax())
+    network = Network([fc1, cov1, mp1, rs1, d1, fc2])
     # cov1 = Convolution(image_shape, (5, 5), 4)
     # mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
     # fc1 = FullyConnected(mp1.output_shape, (1, 10, 10), activation=Tanh())
