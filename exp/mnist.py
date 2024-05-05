@@ -57,6 +57,7 @@ def load_basic_network_preset():
         num_workers=8)
 
     preset = TrainingPreset()
+    preset.name = "MNIST Basic Network"
     preset.network = network
     preset.optimizer = optimizer
     preset.training_data = training_data
@@ -90,6 +91,7 @@ def load_network_preset():
         num_workers=20)
 
     preset = TrainingPreset()
+    preset.name = "MNIST Network"
     preset.network = network
     preset.optimizer = optimizer
     preset.training_data = training_data

@@ -10,6 +10,7 @@ class TrainingPreset:
         self.validation_data = None
         self.test_data = None
         self.num_epochs = 1
+        self.name = ""
 
     def train(
         self,
