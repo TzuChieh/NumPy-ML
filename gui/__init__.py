@@ -4,7 +4,7 @@ import dearpygui.dearpygui as dpg
 import dearpygui.demo as demo
 
 
-def trainer_entry_point():
+def visualizer_entry_point():
     dpg.create_context()
 
     # Add a font registry

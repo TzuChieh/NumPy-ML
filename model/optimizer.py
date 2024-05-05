@@ -62,6 +62,14 @@ class Optimizer(ABC):
         """
         pass
 
+    @property
+    @abstractmethod
+    def total_epochs(self) -> int:
+        """
+        @return Total number of epochs done.
+        """
+        pass
+
 
 class StochasticGradientDescent(Optimizer):
     def __init__(
@@ -89,6 +97,7 @@ class StochasticGradientDescent(Optimizer):
         self._lambba = com.REAL_TYPE(lambba)
         self._train_time = timedelta(seconds=0)
         self._total_train_time = timedelta(seconds=0)
+        self._total_epochs = 0
         self.v_biases = None
         self.v_weights = None
 
@@ -108,12 +117,17 @@ class StochasticGradientDescent(Optimizer):
 
         self._prepare_param_velocities(network)
         for _ in range(num_epochs):
+            # Prepare mini batch data
             random.shuffle(training_data)
             mini_batches = [
                 training_data[bi : bi + self._mini_batch_size]
                 for bi in range(0, len(training_data), self._mini_batch_size)]
+            
+            # Train with mini batches
             for mini_batch_data in mini_batches:
                 self._mini_batch_param_update(network, mini_batch_data, len(training_data))
+
+            self._total_epochs += 1
 
         self._train_time = timedelta(seconds=(timer() - start_time))
         self._total_train_time += self._train_time
@@ -133,9 +147,12 @@ class StochasticGradientDescent(Optimizer):
 
     def get_info(self):
         info = f"optimizer: stochastic gradient descent\n"
-        info += f"mini batch size: {self._mini_batch_size}, workers: {self._num_workers}\n"
-        info += f"gradient clip: {self._gradient_clip_norm}, momentum: {self._momentum}\n"
-        info += f"learning rate: {self._eta}, L2 regularization: {self._lambba}"
+        info += f"mini batch size: {self._mini_batch_size}\n"
+        info += f"workers: {self._num_workers}\n"
+        info += f"gradient clip: {self._gradient_clip_norm}\n"
+        info += f"momentum: {self._momentum}\n"
+        info += f"learning rate: {self._eta}\n"
+        info += f"L2 regularization: {self._lambba}"
         return info
     
     @property
@@ -151,6 +168,10 @@ class StochasticGradientDescent(Optimizer):
         @return Time spent for all calls to `train()`.
         """
         return self._total_train_time
+    
+    @property
+    def total_epochs(self):
+        return self._total_epochs
 
     def _mini_batch_param_update(self, network: Network, mini_batch_data, n):
         """
