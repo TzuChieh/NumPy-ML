@@ -65,7 +65,7 @@ class TrainingPreset:
                 self.report.epoch_to_evaluation_cost[ei] = cost
                 brief += f"; eval cost: {cost}"
 
-            self.report.epoch_to_seconds_spent[ei] = self.optimizer.train_time.total_seconds()
+            self.report.epoch_to_seconds[ei] = self.optimizer.total_train_time.total_seconds()
             brief += f"; Δt: {self.optimizer.train_time}"
 
             if report_folder_path is not None:

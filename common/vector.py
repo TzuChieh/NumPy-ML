@@ -68,6 +68,10 @@ def correlate_shape(matrix_shape, kernel_shape, stride_shape=(1,)) -> np_type.ND
     nd = len(kernel_shape)
     stride_shape = np.broadcast_to(stride_shape, nd)
     correlate_size = np.floor_divide(np.subtract(matrix_shape[-nd:], kernel_shape), stride_shape) + 1
+
+    # Could be negative if kernel is smaller than matrix, clamp it
+    correlate_size = np.maximum(correlate_size, 0)
+
     return (*matrix_shape[:-nd], *correlate_size)
 
 def dilate_shape(matrix_shape, stride_shape, pad_shape=(0,)) -> np_type.NDArray:
@@ -134,7 +138,8 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)) -> np_type.NDA
 def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,)) -> np_type.NDArray:
     """
     Correlate the matrix according to the specified shapes. Will compute with the kernel's dimensions
-    (broadcast the rest).
+    (broadcast the rest). The correlation is performed on regions where the matrix and kernel overlaps
+    completely (in a sense similar to `numpy.convolve()`'s `valid` mode).
     @param kernel The kernel to correlate with.
     @param stride_shape Stride dimensions.
     """

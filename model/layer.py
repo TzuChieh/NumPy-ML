@@ -374,11 +374,18 @@ class Convolution(Layer):
         correlated_shape = vec.correlate_shape(input_shape, kernel_shape, stride_shape)
         assert correlated_shape[-3] == 1
 
+        if not np.all(np.greater(correlated_shape, 0)):
+            raise ValueError(
+                (f"Convoluted shape has 0-sized dimension, this will result in information loss. "
+                 "input: {input_shape}, kernel: {kernel_shape}, features: {output_features}, stride: {stride_shape}"))
+
         self._input_shape = np.array(input_shape)
         self._output_shape = np.array((*correlated_shape[:-3], output_features, *correlated_shape[-2:]))
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
+
+        # Each feature uses its own kernel and bias
         self._bias = np.zeros((output_features, 1, 1, 1), dtype=com.REAL_TYPE)
         self._weight = np.zeros((output_features, *kernel_shape), dtype=com.REAL_TYPE)
 
@@ -419,9 +426,9 @@ class Convolution(Layer):
 
         z = np.zeros(self.output_shape, dtype=x.dtype)
         for output_channel in range(self.output_shape[-3]):
-            b = self._bias[output_channel]
-            k = self._weight[output_channel]
-            z[output_channel] = vec.correlate(x, k, self._stride_shape) + b
+            b = self.bias[output_channel]
+            k = self.weight[output_channel]
+            z[output_channel] = vec.correlate(x, k, self.stride_shape) + b
         z = z.reshape(self.output_vector_shape)
 
         self.try_cache(cache, 'z', z)
@@ -436,10 +443,10 @@ class Convolution(Layer):
         del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=delta.dtype).reshape(self.bias.shape)
 
         # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
-        dilated_delta = vec.dilate(delta, self._stride_shape)
+        dilated_delta = vec.dilate(delta, self.stride_shape)
         del_w = vec.zeros_from(self.weight)
         for output_channel in range(self.output_shape[-3]):
-            d = dilated_delta[np.newaxis, output_channel, ...]
+            d = dilated_delta[..., np.newaxis, output_channel, :, :]
             del_w[output_channel] = vec.correlate(x, d)
 
         return (del_b, del_w)
@@ -449,22 +456,35 @@ class Convolution(Layer):
 
         delta = delta.reshape(self.output_shape)
 
-        # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with
-        # a reversed kernel
-        flip_axes = tuple(di for di in range(-len(self._kernel_shape), 0))
-        reversed_k = np.flip(self._weight, axis=flip_axes)
-        pad_shape = np.subtract(self._kernel_shape, 1)
-        dilated_delta = vec.dilate(delta, self._stride_shape, pad_shape=pad_shape)
+        # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with a
+        # reversed kernel (not flipping dimensions before channel as we are not sliding over them during forward pass)
+        reversed_k = np.flip(self.weight, axis=(-2, -1))
+        pad_shape = self.kernel_shape - 1
+        dilated_delta = vec.dilate(delta, self.stride_shape, pad_shape=pad_shape)
+
+        # The shape to correlate with `k` for bringing back the number of channels of the input
+        num_input_channels = self.input_shape[-3]
+        cor_d_shape = (*dilated_delta.shape[:-3], num_input_channels, *dilated_delta.shape[-2:])
+        
         dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
         for output_channel in range(self.output_shape[-3]):
             k = reversed_k[output_channel]
-            d = dilated_delta[np.newaxis, output_channel, ...]
+            d = dilated_delta[..., np.newaxis, output_channel, :, :]
+            d = np.broadcast_to(d, cor_d_shape)
             dCdx += vec.correlate(d, k)
 
         return dCdx.reshape(self.input_vector_shape)
     
+    @property
+    def kernel_shape(self) -> np_type.NDArray:
+        return self._kernel_shape
+    
+    @property
+    def stride_shape(self) -> np_type.NDArray:
+        return self._stride_shape
+
     def __str__(self):
-        kernel_info = "x".join(str(ks) for ks in self._kernel_shape)
+        kernel_info = "x".join(str(ks) for ks in self.kernel_shape)
         return f"{kernel_info} convolution: {self.input_shape} -> {self.output_shape} ({self.num_params})"
 
 

@@ -80,9 +80,45 @@ def load_network_preset():
     mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
     rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
     d1 = Dropout(rs1.output_shape, 0.5)
-    fc2 = FullyConnected(rs1.output_shape, (1, 100, 1), activation=Tanh())
-    fc3 = FullyConnected(fc2.output_shape, (1, 10, 1), activation=Softmax())
-    network = Network([cov1, mp1, rs1, d1, fc2, fc3])
+    fc1 = FullyConnected(d1.output_shape, (1, 100, 1), activation=Tanh())
+    fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
+    network = Network([cov1, mp1, rs1, d1, fc1, fc2])
+
+    optimizer = StochasticGradientDescent(
+        20,
+        eta=0.05,
+        lambba=1,
+        num_workers=20)
+
+    preset = TrainingPreset()
+    preset.name = "MNIST Network"
+    preset.network = network
+    preset.optimizer = optimizer
+    preset.training_data = training_data
+    preset.validation_data = validation_data
+    preset.test_data = test_data
+    preset.num_epochs = 30
+
+    return preset
+
+def load_deeper_network_preset():
+    training_data, test_data = load_data()
+
+    random.Random(6942).shuffle(training_data)
+    validation_data = training_data[50000:]
+    training_data = training_data[:50000]
+
+    image_shape = training_data[0][0].shape
+
+    cov1 = Convolution(image_shape, (5, 5), 20)
+    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
+    cov2 = Convolution(mp1.output_shape, (5, 5), 20)
+    mp2 = Pool(cov2.output_shape, (1, 2, 2), com.PoolingMode.MAX)
+    rs1 = Reshape(mp2.output_shape, (1, mp2.output_shape[-2] * mp2.output_shape[-3], mp2.output_shape[-1]))
+    d1 = Dropout(rs1.output_shape, 0.5)
+    fc1 = FullyConnected(d1.output_shape, (1, 100, 1), activation=Tanh())
+    fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
+    network = Network([cov1, mp1, cov2, mp2, rs1, d1, fc1, fc2])
 
     optimizer = StochasticGradientDescent(
         20,
