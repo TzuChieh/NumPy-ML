@@ -1,6 +1,6 @@
 # Simple-NumPy-ML
 
-This is my testground for the basics of machine learning. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). This project is inspired by a collection of resources that I found useful on the Internet:
+This is my testground for the basics of machine learning. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). *You **DO NOT** need a GPU to train your model.* This project is inspired by a collection of resources that I found useful on the Internet:
 
 * Michael Nielsen's [Neural Networks and Deep Learning](http://neuralnetworksanddeeplearning.com/)
 * Yani Ioannou's blog posts for deriving [single-layer backpropagation](https://blog.yani.ai/deltarule/) and [multi-layer backpropagation](https://blog.yani.ai/backpropagation/)
@@ -15,7 +15,7 @@ This is my testground for the basics of machine learning. The implementation is 
 
 ## Some Notes
 
-* I do not care the execution speed of the constructed network as the main purpose of this project is for me to understand the basics in the field of machine learning. It is slow, but can still get the job done in a reasonable amount of time (for small networks).
+* I do not care the execution speed of the constructed model as the main purpose of this project is for me to understand the basics in the field. It is slow, but can still get the job done in a reasonable amount of time (for small networks).
 * Currently convolution/correlation is implemented in the naive way (sliding a kernel across the matrix). Ideally, both the feedforward and backpropagation pass of convolutional layer can be implemented as matrix multiplications.
 
 ## Datasets
