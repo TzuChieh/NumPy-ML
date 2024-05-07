@@ -12,9 +12,9 @@ import random
 import os
 
 
-def label_to_output(training_label):
+def label_to_output(label):
     output = np.zeros((1, 10, 1), dtype=np.float32)
-    output[0, int(training_label), 0] = 1
+    output[0, int(label), 0] = 1
     return output
 
 def load_data():
@@ -88,7 +88,7 @@ def load_network_preset():
         20,
         eta=0.05,
         lambba=1,
-        num_workers=20)
+        num_workers=os.cpu_count())
 
     preset = TrainingPreset()
     preset.name = "MNIST Network"
@@ -124,7 +124,7 @@ def load_deeper_network_preset():
         20,
         eta=0.05,
         lambba=1,
-        num_workers=20)
+        num_workers=os.cpu_count())
 
     preset = TrainingPreset()
     preset.name = "MNIST Network"

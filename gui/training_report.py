@@ -5,7 +5,7 @@ import dearpygui.dearpygui as dpg
 from pathlib import Path
 
 
-def show():
+def add():
     with dpg.value_registry():
         dpg.add_string_value(tag='report_folder', default_value=Path("./output/").absolute())
         dpg.add_string_value(tag='report_path', default_value="")
@@ -25,12 +25,15 @@ def show():
         width=700,
         height=400)
 
-    with dpg.window(label="Training Report", width=1440, height=900, no_scrollbar=False, horizontal_scrollbar=True):
+    with dpg.window(label="Training Report", width=1440, height=900, no_scrollbar=False, horizontal_scrollbar=True, show=False, tag='training_report'):
         with dpg.group(horizontal=True):
             with dpg.child_window(tag='reports', width=300):
                 _show_reports_window_content()
             with dpg.child_window(tag='viewer', autosize_x=True):
                 _show_viewer_window_content()
+
+def show():
+    dpg.show_item('training_report')
 
 def _show_reports_window_content():
     def _on_select_report_folder():

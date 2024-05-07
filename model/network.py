@@ -4,6 +4,9 @@ from model.layer import Layer
 
 import numpy as np
 
+import pickle
+from pathlib import Path
+
 
 class Network:
     def __init__(self, hidden_layers: list[Layer], cost: CostFunction=CrossEntropy()):
@@ -58,6 +61,18 @@ class Network:
         num_right_answers = sum(1 for network_y, y in results if network_y == y)
         num_data = len(dataset)
         return (num_right_answers, num_right_answers / num_data)
+
+    def save(self, file_path):
+        file_path = Path(file_path).with_suffix('.model')
+
+        with open(file_path, 'wb') as f:
+            pickle.dump(self.__dict__, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load(self, file_path):
+        file_path = Path(file_path).with_suffix('.model')
+
+        with open(file_path, 'rb') as f:
+            self.__dict__ = pickle.load(f)
 
     @property
     def biases(self):

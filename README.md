@@ -18,14 +18,22 @@ This is my testground for the basics of machine learning. The implementation is 
 * I do not care the execution speed of the constructed network as the main purpose of this project is for me to understand the basics in the field of machine learning. It is slow, but can still get the job done in a reasonable amount of time (for small networks).
 * Currently convolution/correlation is implemented in the naive way (sliding a kernel across the matrix). Ideally, both the feedforward and backpropagation pass of convolutional layer can be implemented as matrix multiplications.
 
-## Additional Dependencies
+## Datasets
+
+### MNIST
+
+The MNIST dataset for training and evaluation of handwritten digits are obtained from [Yann LeCun's MNIST page](http://yann.lecun.com/exdb/mnist/). This dataset is included in `./dataset/mnist/`.
+
+### Fashion-MNIST
+
+### CIFAR-10
+
+### CIFAR-100
+
+## Additional Dependencies (optional)
 
 As mentioned earlier, the only required third-party library is NumPy. Additional libraries can be installed to support more functionalities (see `./requirements_extra.txt`). To install all dependencies in one go, pick the requirement files of your choice and execute (using two files as an example)
 
 ```Shell
 pip install -r requirements.txt -r requirements_extra.txt
 ```
-
-## Datasets
-
-The MNIST dataset for training and evaluation of handwritten digits are obtained from [Yann LeCun's MNIST page](http://yann.lecun.com/exdb/mnist/).
