@@ -6,31 +6,32 @@ from pathlib import Path
 
 
 def add():
-    with dpg.value_registry():
-        dpg.add_string_value(tag='report_folder', default_value=Path("./output/").absolute())
-        dpg.add_string_value(tag='report_path', default_value="")
-        dpg.add_bool_value(tag='auto_fit', default_value=True)
+    # with dpg.value_registry():
+    #     dpg.add_string_value(tag='report_folder', default_value=Path("./output/").absolute())
+    #     dpg.add_string_value(tag='report_path', default_value="")
+    #     dpg.add_bool_value(tag='auto_fit', default_value=True)
 
-    def _on_report_folder_confirmed(sender, app_data):
-        folder_path = app_data['file_path_name']
-        print(f"selecting reports from {folder_path}")
-        dpg.set_value('report_folder', folder_path)
-        _update_report_list()
+    # def _on_report_folder_confirmed(sender, app_data):
+    #     folder_path = app_data['file_path_name']
+    #     print(f"selecting reports from {folder_path}")
+    #     dpg.set_value('report_folder', folder_path)
+    #     _update_report_list()
 
-    dpg.add_file_dialog(
-        tag='report_folder_dialog',
-        directory_selector=True,
-        show=False,
-        callback=_on_report_folder_confirmed,
-        width=700,
-        height=400)
+    # dpg.add_file_dialog(
+    #     tag='report_folder_dialog',
+    #     directory_selector=True,
+    #     show=False,
+    #     callback=_on_report_folder_confirmed,
+    #     width=700,
+    #     height=400)
 
-    with dpg.window(label="Training Report", width=1440, height=900, no_scrollbar=False, horizontal_scrollbar=True, show=False, tag='training_report'):
-        with dpg.group(horizontal=True):
-            with dpg.child_window(tag='reports', width=300):
-                _show_reports_window_content()
-            with dpg.child_window(tag='viewer', autosize_x=True):
-                _show_viewer_window_content()
+    # with dpg.window(label="Training Report", width=1440, height=900, no_scrollbar=False, horizontal_scrollbar=True, show=False, tag='training_report'):
+    #     with dpg.group(horizontal=True):
+    #         with dpg.child_window(tag='reports', width=300):
+    #             _show_reports_window_content()
+    #         with dpg.child_window(tag='viewer', autosize_x=True):
+    #             _show_viewer_window_content()
+    pass
 
 def show():
     dpg.show_item('training_report')

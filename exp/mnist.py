@@ -112,7 +112,7 @@ def load_deeper_network_preset():
 
     cov1 = Convolution(image_shape, (5, 5), 20)
     mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
-    cov2 = Convolution(mp1.output_shape, (5, 5), 20)
+    cov2 = Convolution(mp1.output_shape, (5, 5), 40)
     mp2 = Pool(cov2.output_shape, (1, 2, 2), com.PoolingMode.MAX)
     rs1 = Reshape(mp2.output_shape, (1, mp2.output_shape[-2] * mp2.output_shape[-3], mp2.output_shape[-1]))
     d1 = Dropout(rs1.output_shape, 0.5)
@@ -122,7 +122,7 @@ def load_deeper_network_preset():
 
     optimizer = StochasticGradientDescent(
         20,
-        eta=0.05,
+        eta=0.04,
         lambba=1,
         num_workers=os.cpu_count())
 
@@ -133,6 +133,6 @@ def load_deeper_network_preset():
     preset.training_data = training_data
     preset.validation_data = validation_data
     preset.test_data = test_data
-    preset.num_epochs = 30
+    preset.num_epochs = 40
 
     return preset

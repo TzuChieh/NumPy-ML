@@ -1,5 +1,6 @@
 import gui.main_menu
-import gui.training_report
+import gui.training_report_viewer
+import gui.model_viewer
 
 import dearpygui.dearpygui as dpg
 import dearpygui.demo as demo
@@ -19,7 +20,8 @@ def visualizer_entry_point():
     dpg.create_viewport(title='Custom Title', width=600, height=600)
     
     gui.main_menu.add()
-    gui.training_report.add()
+    gui.training_report_viewer.add()
+    gui.model_viewer.add()
 
     dpg.setup_dearpygui()
     dpg.show_viewport()
