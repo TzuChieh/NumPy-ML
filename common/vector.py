@@ -8,6 +8,7 @@ def _make_kernel_dim_to_einsum_correlation_expr():
     chars = 'abcdefghijklmnopqrstuvwxyz'
     result = {}
     for dim in range(1, 26 + 1):
+        # Builds the expression for current dimension, e.g., for `dim == 2`, `result[dim] == '...ab,...ab->...'`
         subscripts = chars[:dim]
         result[dim] = f'...{subscripts},...{subscripts}->...'
     return result

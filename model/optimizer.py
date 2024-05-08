@@ -6,6 +6,7 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 
 import common as com
 import common.vector as vec
+import common.progress_bar as progress_bar
 from model.network import Network
 
 import numpy as np
@@ -24,7 +25,8 @@ class Optimizer(ABC):
         self,
         network: Network,
         num_epochs,
-        training_data):
+        training_data,
+        print_progress=False):
         """
         Train the given network.
         """
@@ -109,7 +111,8 @@ class StochasticGradientDescent(Optimizer):
         self,
         network: Network,
         num_epochs,
-        training_data):
+        training_data,
+        print_progress=False):
         """
         @param network The network to train.
         """
@@ -123,9 +126,15 @@ class StochasticGradientDescent(Optimizer):
                 training_data[bi : bi + self._mini_batch_size]
                 for bi in range(0, len(training_data), self._mini_batch_size)]
             
+            if print_progress:
+                self._print_progress(0)
+
             # Train with mini batches
-            for mini_batch_data in mini_batches:
+            for bi, mini_batch_data in enumerate(mini_batches):
                 self._mini_batch_param_update(network, mini_batch_data, len(training_data))
+
+                if print_progress:
+                    self._print_progress((bi + 1) / len(mini_batches))
 
             self._total_epochs += 1
 
@@ -207,6 +216,9 @@ class StochasticGradientDescent(Optimizer):
 
         if self.v_weights is None:
             self.v_weights = [vec.zeros_from(w) for w in network.weights]
+
+    def _print_progress(self, fraction):
+        progress_bar.put(fraction, num_progress_chars=40, prefix="MBSGD: ")
 
 
 def _sgd_backpropagation(

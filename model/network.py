@@ -63,12 +63,18 @@ class Network:
         return (num_right_answers, num_right_answers / num_data)
 
     def save(self, file_path):
+        """
+        @param file_path Path to the saved file. A suitable extension will be added automatically.
+        """
         file_path = Path(file_path).with_suffix('.model')
 
         with open(file_path, 'wb') as f:
             pickle.dump(self.__dict__, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def load(self, file_path):
+        """
+        @param file_path Path to the loaded file. A suitable extension will be added automatically.
+        """
         file_path = Path(file_path).with_suffix('.model')
 
         with open(file_path, 'rb') as f:

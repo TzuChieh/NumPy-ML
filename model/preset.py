@@ -37,8 +37,10 @@ class TrainingPreset:
         self.report_path = Path(report_folder_path) / curr_time
 
         for ei in range(self.num_epochs):
+            print(f"Epoch {ei + 1} / {self.num_epochs}:")
+
             # Optimize one epoch at a time
-            self.optimizer.optimize(self.network, 1, self.training_data)
+            self.optimizer.optimize(self.network, 1, self.training_data, print_progress=True)
             
             # Collects a brief report for this epoch
             brief = ""
@@ -46,31 +48,31 @@ class TrainingPreset:
             if report_training_performance:
                 num, frac = self.network.performance(self.training_data)
                 self.report.epoch_to_training_performance[ei] = frac
-                brief += f"; training perf: {num} / {len(self.training_data)} ({frac})"
+                brief += f" | training perf: {num} / {len(self.training_data)} ({frac:.4f})"
 
             if report_eval_performance:
                 assert eval_data is not None
                 num, frac = self.network.performance(eval_data)
                 self.report.epoch_to_evaluation_performance[ei] = frac
-                brief += f"; eval perf: {num} / {len(eval_data)} ({frac})"
+                brief += f" | eval perf: {num} / {len(eval_data)} ({frac:.4f})"
 
             if report_training_cost:
                 cost = self.optimizer.total_cost(self.network, self.training_data)
                 self.report.epoch_to_training_cost[ei] = cost
-                brief += f"; training cost: {cost}"
+                brief += f" | training cost: {cost:.4f}"
 
             if report_eval_cost:
                 assert eval_data is not None
                 cost = self.optimizer.total_cost(self.network, eval_data)
                 self.report.epoch_to_evaluation_cost[ei] = cost
-                brief += f"; eval cost: {cost}"
+                brief += f" | eval cost: {cost:.4f}"
 
             self.report.epoch_to_seconds[ei] = self.optimizer.total_train_time.total_seconds()
-            brief += f"; Δt: {self.optimizer.train_time}"
+            brief += f" | Δt: {self.optimizer.train_time}"
 
             if report_folder_path is not None:
                 self.report.save(self.report_path)
 
-            print(f"epoch {ei + 1} / {self.num_epochs}{brief}")
+            print(f"{brief}")
 
         print(f"total Δt: {self.optimizer.total_train_time}")

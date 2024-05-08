@@ -19,12 +19,27 @@ def label_to_output(label):
 
 def load_data():
     """
-    Loads MNIST dataset. The images are handwritten digits labeled in [0, 9].
+    Loads Fashion-MNIST dataset. The loaded data is exactly the same format as MNIST. Though the images are
+    labeled in [0, 9], they actually have different meanings than MNIST. Here is what each number means in
+    the Fashion-MNIST dataset:
+    
+    Label 	Description
+    -------------------
+    0       T-shirt/top
+    1       Trouser
+    2       Pullover
+    3       Dress
+    4       Coat
+    5       Sandal
+    6       Shirt
+    7       Sneaker
+    8       Bag
+    9       Ankle boot
     """
-    training_inputs = data.load("./dataset/mnist/train-images-idx3-ubyte.gz").astype(np.float32)
-    training_labels = data.load("./dataset/mnist/train-labels-idx1-ubyte.gz").astype(np.float32)
-    test_inputs = data.load("./dataset/mnist/t10k-images-idx3-ubyte.gz").astype(np.float32)
-    test_labels = data.load("./dataset/mnist/t10k-labels-idx1-ubyte.gz").astype(np.float32)
+    training_inputs = data.load("./dataset/fashion_mnist/train-images-idx3-ubyte.gz").astype(np.float32)
+    training_labels = data.load("./dataset/fashion_mnist/train-labels-idx1-ubyte.gz").astype(np.float32)
+    test_inputs = data.load("./dataset/fashion_mnist/t10k-images-idx3-ubyte.gz").astype(np.float32)
+    test_labels = data.load("./dataset/fashion_mnist/t10k-labels-idx1-ubyte.gz").astype(np.float32)
 
     # Normalize to [0, 1]
     training_inputs = training_inputs / np.float32(255)
@@ -60,7 +75,7 @@ def load_basic_network_preset():
         num_workers=8)
 
     preset = TrainingPreset()
-    preset.name = "MNIST Basic Network"
+    preset.name = "Fashion-MNIST Basic Network"
     preset.network = network
     preset.optimizer = optimizer
     preset.training_data = training_data
@@ -79,22 +94,22 @@ def load_network_preset():
 
     image_shape = training_data[0][0].shape
 
-    cov1 = Convolution(image_shape, (5, 5), 20)
-    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
-    rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
-    d1 = Dropout(rs1.output_shape, 0.5)
-    fc1 = FullyConnected(d1.output_shape, (1, 100, 1), activation=Tanh())
+    cov1 = Convolution(image_shape, (3, 3), 32, activation=Tanh())
+    cov2 = Convolution(cov1.output_shape, (3, 3), 32, activation=Tanh())
+    rs1 = Reshape(cov2.output_shape, (1, cov2.output_shape[-2] * cov2.output_shape[-3], cov2.output_shape[-1]))
+    fc1 = FullyConnected(rs1.output_shape, (1, 100, 1), activation=Tanh())
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
-    network = Network([cov1, mp1, rs1, d1, fc1, fc2])
+    network = Network([cov1, cov2, rs1, fc1, fc2])
 
     optimizer = StochasticGradientDescent(
         20,
-        eta=0.05,
+        eta=0.01,
+        momentum=0.5,
         lambba=1,
         num_workers=os.cpu_count())
 
     preset = TrainingPreset()
-    preset.name = "MNIST Network"
+    preset.name = "Fashion-MNIST Network"
     preset.network = network
     preset.optimizer = optimizer
     preset.training_data = training_data
@@ -130,7 +145,7 @@ def load_deeper_network_preset():
         num_workers=os.cpu_count())
 
     preset = TrainingPreset()
-    preset.name = "MNIST Deeper Network"
+    preset.name = "Fashion-MNIST Deeper Network"
     preset.network = network
     preset.optimizer = optimizer
     preset.training_data = training_data

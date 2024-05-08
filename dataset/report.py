@@ -13,6 +13,9 @@ class Report:
         self.epoch_to_seconds = {}
 
     def save(self, file_path):
+        """
+        @param file_path Path to the loaded file. A suitable extension will be added automatically.
+        """
         file_path = Path(file_path).with_suffix('.report')
 
         # Serialize report in .json
@@ -20,6 +23,9 @@ class Report:
             json.dump(self.__dict__, f, indent=4)
 
     def load(self, file_path):
+        """
+        @param file_path Path to the loaded file. A suitable extension will be added automatically.
+        """
         file_path = Path(file_path).with_suffix('.report')
 
         # Deserialize report from .json

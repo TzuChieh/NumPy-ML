@@ -26,6 +26,8 @@ The MNIST dataset for training and evaluation of handwritten digits are obtained
 
 ### Fashion-MNIST
 
+The Fashion-MNIST dataset are obtained from their [GitHub repository](https://github.com/zalandoresearch/fashion-mnist). This is a MNIST-like dataset that is designed to be a drop-in replacement of MNIST, with greater variety and harder to predict. This dataset is included in `./dataset/fashion_mnist/`.
+
 ### CIFAR-10
 
 ### CIFAR-100
