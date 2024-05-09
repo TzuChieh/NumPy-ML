@@ -358,7 +358,8 @@ class Convolution(Layer):
         kernel_shape: typing.Iterable[int],
         num_output_features: int,
         stride_shape: typing.Iterable[int]=(1,), 
-        activation: ActivationFunction=Sigmoid()):
+        activation: ActivationFunction=Sigmoid(),
+        use_tied_bias=False):
         """
         @param kernel_shape Kernel dimensions, in (height, width). Will automatically infer the number of channels
         of the kernel from `input_shape`.
@@ -384,9 +385,11 @@ class Convolution(Layer):
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
+        self._use_tied_bias = use_tied_bias
 
         # Each feature uses its own kernel and bias
-        self._bias = np.zeros((num_output_features, 1, 1, 1), dtype=com.REAL_TYPE)
+        bias_shape = (1, *correlated_shape[-2:]) if use_tied_bias else (1, 1, 1)
+        self._bias = np.zeros((num_output_features, *bias_shape), dtype=com.REAL_TYPE)
         self._weight = np.zeros((num_output_features, *kernel_shape), dtype=com.REAL_TYPE)
 
         self.init_scaled_normal_params()
@@ -413,6 +416,8 @@ class Convolution(Layer):
     
     def update_params(self, bias, weight):
         assert self.is_trainable
+        assert np.array_equal(bias.shape, self.bias.shape), f"shapes: {bias.shape}, {self.bias.shape}"
+        assert np.array_equal(weight.shape, self.weight.shape), f"shapes: {weight.shape}, {self.weight.shape}"
 
         self._bias = bias
         self._weight = weight
@@ -424,17 +429,16 @@ class Convolution(Layer):
 
         x = x.reshape(self.input_shape)
 
-        z = np.zeros(self.output_shape, dtype=x.dtype)
-        for output_channel in range(self.output_shape[-3]):
-            b = self.bias[output_channel]
-            k = self.weight[output_channel]
-            z[output_channel] = vec.correlate(x, k, self.stride_shape) + b
+        # Match parameter dimensions for vectorized operation
+        num_output_channels = self.output_shape[-3]
+        x_v = np.expand_dims(x, -4)
+        x_v = np.broadcast_to(x_v, (*x.shape[:-3], num_output_channels, *x.shape[-3:]))
 
-        # x = np.broadcast_to(x, (*x.shape[:-3], self.output_shape[-3], *x.shape[-3:]))
-        # z = vec.correlate(x, self.weight, self.stride_shape, num_kernel_dims=3)
-        # z += self.bias
-        
-        z = z.reshape(self.output_vector_shape)
+        # Perform correlation for each channel (feature map)
+        z_v = vec.correlate(x_v, self.weight, self.stride_shape, num_kernel_dims=3)
+        z_v += self.bias
+            
+        z = z_v.reshape(self.output_vector_shape)
 
         self.try_cache(cache, 'z', z)
         return z
@@ -443,17 +447,25 @@ class Convolution(Layer):
         x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)
 
-        # Backpropagation for bias is per-feature summation of gradient
-        sum_axes = (-2, -1)
-        del_b = delta.sum(axis=sum_axes, keepdims=True, dtype=delta.dtype).reshape(self.bias.shape)
+        # Backpropagation for bias is per-feature summation/assignment (untied/tied) of gradient
+        if self._use_tied_bias:
+            del_b = delta[..., np.newaxis, :, :]
+        else:
+            d_per_feature_sum = delta.sum(axis=(-2, -1), keepdims=True, dtype=delta.dtype)
+            del_b = d_per_feature_sum[..., np.newaxis, :, :]
 
-        # Backpropagation is equivalent to a stride-1 correlation of input with a dilated gradient
-        dilated_delta = vec.dilate(delta, self.stride_shape)
-        del_w = vec.zeros_from(self.weight)
-        for output_channel in range(self.output_shape[-3]):
-            d = dilated_delta[..., np.newaxis, output_channel, :, :]
-            del_w[output_channel] = vec.correlate(x, d)
+        # Match parameter dimensions for vectorized operation
+        num_output_channels = self.output_shape[-3]
+        x_v = np.expand_dims(x, -4)
+        x_v = np.broadcast_to(x_v, (*x.shape[:-3], num_output_channels, *x.shape[-3:]))
+        dilated_delta_v = vec.dilate(delta, self.stride_shape)[..., np.newaxis, :, :]
 
+        # Backpropagation for weight is equivalent to a stride-1 correlation of input with a dilated gradient for
+        # (in general, 1 output feature will correlate with n input channels)
+        del_w = vec.correlate(x_v, dilated_delta_v, num_kernel_dims=3)
+
+        assert np.array_equal(del_b.shape[-4:], self.bias.shape), f"shapes: {del_b.shape[-4:]}, {self.bias.shape}"
+        assert np.array_equal(del_w.shape[-4:], self.weight.shape), f"shapes: {del_w.shape[-4:]}, {self.weight.shape}"
         return (del_b, del_w)
 
     def backpropagate(self, x, delta, cache):
@@ -461,24 +473,26 @@ class Convolution(Layer):
 
         delta = delta.reshape(self.output_shape)
 
-        # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with a
-        # reversed kernel (not flipping dimensions before channel as we are not sliding over them during forward pass)
+        # Prepare kernel and delta
+        # (not flipping or padding dimensions before channel as we are not sliding over them during forward pass)
         reversed_k = np.flip(self.weight, axis=(-2, -1))
-        pad_shape = self.kernel_shape - 1
+        pad_shape = (0, self.kernel_shape[-2] - 1, self.kernel_shape[-1] - 1)
         dilated_delta = vec.dilate(delta, self.stride_shape, pad_shape=pad_shape)
 
-        # The shape to correlate with `k` for bringing back the number of channels of the input
+        # Match parameter dimensions for vectorized operation
+        # (the shape is to correlate with kernel for bringing back the number of channels of the input)
         num_input_channels = self.input_shape[-3]
-        cor_d_shape = (*dilated_delta.shape[:-3], num_input_channels, *dilated_delta.shape[-2:])
+        dilated_delta_v = np.expand_dims(dilated_delta, -3)
+        dilated_delta_v = np.broadcast_to(dilated_delta_v, (*dilated_delta.shape[:-2], num_input_channels, *dilated_delta.shape[-2:]))
 
-        dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
-        for output_channel in range(self.output_shape[-3]):
-            k = reversed_k[output_channel]
-            d = dilated_delta[..., np.newaxis, output_channel, :, :]
-            d = np.broadcast_to(d, cor_d_shape)
-            dCdx += vec.correlate(d, k)
+        # Backpropagation is equivalent to a stride-1 full correlation of a dilated (and padded) gradient with a
+        # reversed kernel (in general, n kernel channels will correlate with 1 output feature, then the contribution
+        # from n output features will be added together)
+        dCdx_v = vec.correlate(dilated_delta_v, reversed_k, num_kernel_dims=2)
+        dCdx_v = dCdx_v.sum(axis=-4)
 
-        return dCdx.reshape(self.input_vector_shape)
+        dCdx = dCdx_v.reshape(self.input_vector_shape)
+        return dCdx
     
     @property
     def kernel_shape(self) -> np_type.NDArray:

@@ -106,7 +106,7 @@ def load_network_preset():
         eta=0.001,
         momentum=0.5,
         lambba=1,
-        num_workers=1)
+        num_workers=os.cpu_count())
 
     preset = TrainingPreset()
     preset.name = "Fashion-MNIST Network"

@@ -135,7 +135,7 @@ class StochasticGradientDescent(Optimizer):
 
                 if print_progress:
                     ms = timedelta(seconds=(timer() - start_time)).total_seconds() / (bi + 1) * 1000
-                    self._print_progress((bi + 1) / len(mini_batches), suffix=f" {ms:.2f} ms/batch ")
+                    self._print_progress((bi + 1) / len(mini_batches), suffix=f" {ms:.2f} ms/batch")
 
             self._total_epochs += 1
 
