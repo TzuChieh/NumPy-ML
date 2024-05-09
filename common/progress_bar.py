@@ -11,7 +11,10 @@ def put(
     file=sys.stdout,
     flush=True):
     """
-    Output a progress bar.
+    Output a progress bar. A good idea is to keep `prefix` and `suffix` of fixed lengths, so every time the
+    progress bar updates, it consistently overwrites content from previous update.
+    @param prefix Content to place before the progress bar.
+    @param suffix Content to place after the progress bar.
     """
     assert 0.0 <= fraction and fraction <= 1.0
     

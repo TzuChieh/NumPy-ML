@@ -134,8 +134,13 @@ class StochasticGradientDescent(Optimizer):
                 self._mini_batch_param_update(network, mini_batch_data, len(training_data))
 
                 if print_progress:
-                    ms = timedelta(seconds=(timer() - start_time)).total_seconds() / (bi + 1) * 1000
-                    self._print_progress((bi + 1) / len(mini_batches), suffix=f" {ms:.2f} ms/batch")
+                    fraction_done = (bi + 1) / len(mini_batches)
+                    seconds_spent = timedelta(seconds=(timer() - start_time)).total_seconds()
+                    ms_per_batch = seconds_spent / (bi + 1) * 1000
+                    mins_left = seconds_spent / 60 / fraction_done * (1 - fraction_done)
+                    self._print_progress(
+                        fraction_done,
+                        suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
 
             self._total_epochs += 1
 
