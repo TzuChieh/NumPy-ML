@@ -66,6 +66,8 @@ def correlate_shape(matrix_shape, kernel_shape, stride_shape=(1,)) -> np_type.ND
     @param kernel_shape Kernel dimensions.
     @param stride_shape Stride dimensions (for moving the kernel).
     """
+    assert len(matrix_shape) >= len(kernel_shape)
+
     nd = len(kernel_shape)
     stride_shape = np.broadcast_to(stride_shape, nd)
     correlate_size = np.floor_divide(np.subtract(matrix_shape[-nd:], kernel_shape), stride_shape) + 1
@@ -82,6 +84,8 @@ def dilate_shape(matrix_shape, stride_shape, pad_shape=(0,)) -> np_type.NDArray:
     @param stride_shape Stride dimensions.
     @param pad_shape Pad dimensions.
     """
+    assert len(matrix_shape) >= len(stride_shape)
+
     stride_shape, pad_shape = np.broadcast_arrays(stride_shape, pad_shape)
     nd = len(stride_shape)
     skirt_size = np.multiply(pad_shape, 2)
@@ -104,7 +108,7 @@ def sliding_window_view(matrix: np_type.NDArray, window_shape, stride_shape=(1,)
     write-to locations are not overlapping in vectorized operations.
     """
     correlated_shape = correlate_shape(matrix.shape, window_shape, stride_shape)
-    nd = len(correlated_shape)
+    nd = len(window_shape)
     stride_shape = np.broadcast_to(stride_shape, nd)
     
     view_shape = (
@@ -126,7 +130,7 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)) -> np_type.NDA
     """
     dilated_shape = dilate_shape(matrix.shape, stride_shape, pad_shape)
     
-    # Create slice into the dilated matrix so we can assign `matrix` without looping
+    # Create slice into the dilated matrix so we can assign the "exploded" `matrix` without looping
     step, pad = np.broadcast_arrays(stride_shape, pad_shape)
     nd = len(step)
     size = np.array(dilated_shape[-nd:])
@@ -136,19 +140,27 @@ def dilate(matrix: np_type.NDArray, stride_shape, pad_shape=(0,)) -> np_type.NDA
     dilated_matrix[..., *slices] = matrix
     return dilated_matrix
     
-def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,)) -> np_type.NDArray:
+def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,), num_kernel_dims=None) -> np_type.NDArray:
     """
     Correlate the matrix according to the specified shapes. Will compute with the kernel's dimensions
     (broadcast the rest). The correlation is performed on regions where the matrix and kernel overlaps
     completely (in a sense similar to `numpy.convolve()`'s `valid` mode).
     @param kernel The kernel to correlate with.
     @param stride_shape Stride dimensions.
+    @param num_kernel_dims Number of kernel dimensions. If `None`, will infer from kernel shape. If a value is
+    specified, the correlation will be done on the specified dimensions and broadcast to the rest.
     """
-    assert matrix.dtype == kernel.dtype, f"types: {matrix.dtype}, {kernel.dtype}"
+    nd = len(kernel.shape) if num_kernel_dims is None else num_kernel_dims
+    assert nd <= len(kernel.shape)
 
-    nd = len(kernel.shape)
-    strided_view = sliding_window_view(matrix, kernel.shape, stride_shape)
-    correlated = np.einsum(_kernel_dim_to_einsum_correlation_expr[nd], strided_view, kernel)
+    # A view of the matrix with matching kernel dimensions, so correlation is just an element-wise dot
+    strided_view = sliding_window_view(matrix, kernel.shape[-nd:], stride_shape)
+
+    # Since kernel dimensions may be specified explicitly, a reshaped view to kernel is needed (e.g., for 
+    # vectorized operation on a batch of kernels)
+    kernel_view = kernel.reshape((*kernel.shape[:-nd], *([1] * nd), *kernel.shape[-nd:]))
+
+    correlated = np.einsum(_kernel_dim_to_einsum_correlation_expr[nd], strided_view, kernel_view)
 
     assert np.array_equal(correlated.shape, strided_view.shape[:-nd]), f"shapes: {correlated.shape}, {strided_view.shape}"
     return correlated

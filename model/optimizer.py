@@ -134,7 +134,8 @@ class StochasticGradientDescent(Optimizer):
                 self._mini_batch_param_update(network, mini_batch_data, len(training_data))
 
                 if print_progress:
-                    self._print_progress((bi + 1) / len(mini_batches))
+                    ms = timedelta(seconds=(timer() - start_time)).total_seconds() / (bi + 1) * 1000
+                    self._print_progress((bi + 1) / len(mini_batches), suffix=f" {ms:.2f} ms/batch ")
 
             self._total_epochs += 1
 
@@ -217,8 +218,8 @@ class StochasticGradientDescent(Optimizer):
         if self.v_weights is None:
             self.v_weights = [vec.zeros_from(w) for w in network.weights]
 
-    def _print_progress(self, fraction):
-        progress_bar.put(fraction, num_progress_chars=40, prefix="MBSGD: ")
+    def _print_progress(self, fraction, suffix=""):
+        progress_bar.put(fraction, num_progress_chars=40, prefix="MBSGD: ", suffix=suffix)
 
 
 def _sgd_backpropagation(

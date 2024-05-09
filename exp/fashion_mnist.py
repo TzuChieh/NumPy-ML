@@ -103,10 +103,10 @@ def load_network_preset():
 
     optimizer = StochasticGradientDescent(
         20,
-        eta=0.01,
+        eta=0.001,
         momentum=0.5,
         lambba=1,
-        num_workers=os.cpu_count())
+        num_workers=1)
 
     preset = TrainingPreset()
     preset.name = "Fashion-MNIST Network"

@@ -356,7 +356,7 @@ class Convolution(Layer):
         self, 
         input_shape: typing.Iterable[int],
         kernel_shape: typing.Iterable[int],
-        output_features: int,
+        num_output_features: int,
         stride_shape: typing.Iterable[int]=(1,), 
         activation: ActivationFunction=Sigmoid()):
         """
@@ -377,17 +377,17 @@ class Convolution(Layer):
         if not np.all(np.greater(correlated_shape, 0)):
             raise ValueError(
                 (f"Convoluted shape has 0-sized dimension, this will result in information loss. "
-                 "input: {input_shape}, kernel: {kernel_shape}, features: {output_features}, stride: {stride_shape}"))
+                 "input: {input_shape}, kernel: {kernel_shape}, features: {num_output_features}, stride: {stride_shape}"))
 
         self._input_shape = np.array(input_shape)
-        self._output_shape = np.array((*correlated_shape[:-3], output_features, *correlated_shape[-2:]))
+        self._output_shape = np.array((*correlated_shape[:-3], num_output_features, *correlated_shape[-2:]))
         self._kernel_shape = np.array(kernel_shape)
         self._stride_shape = np.array(stride_shape)
         self._activation = activation
 
         # Each feature uses its own kernel and bias
-        self._bias = np.zeros((output_features, 1, 1, 1), dtype=com.REAL_TYPE)
-        self._weight = np.zeros((output_features, *kernel_shape), dtype=com.REAL_TYPE)
+        self._bias = np.zeros((num_output_features, 1, 1, 1), dtype=com.REAL_TYPE)
+        self._weight = np.zeros((num_output_features, *kernel_shape), dtype=com.REAL_TYPE)
 
         self.init_scaled_normal_params()
 
@@ -429,6 +429,11 @@ class Convolution(Layer):
             b = self.bias[output_channel]
             k = self.weight[output_channel]
             z[output_channel] = vec.correlate(x, k, self.stride_shape) + b
+
+        # x = np.broadcast_to(x, (*x.shape[:-3], self.output_shape[-3], *x.shape[-3:]))
+        # z = vec.correlate(x, self.weight, self.stride_shape, num_kernel_dims=3)
+        # z += self.bias
+        
         z = z.reshape(self.output_vector_shape)
 
         self.try_cache(cache, 'z', z)
@@ -465,7 +470,7 @@ class Convolution(Layer):
         # The shape to correlate with `k` for bringing back the number of channels of the input
         num_input_channels = self.input_shape[-3]
         cor_d_shape = (*dilated_delta.shape[:-3], num_input_channels, *dilated_delta.shape[-2:])
-        
+
         dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
         for output_channel in range(self.output_shape[-3]):
             k = reversed_k[output_channel]

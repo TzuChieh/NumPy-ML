@@ -5,6 +5,7 @@ def put(
     fraction,
     num_progress_chars=10,
     prefix="Progress: ",
+    suffix="",
     show_percentage=True,
     end='',
     file=sys.stdout,
@@ -22,8 +23,8 @@ def put(
     result += "_" * (num_progress_chars - num_completed_chars)
 
     result += "]"
-
     if show_percentage:
         result += f" {fraction * 100:6.2f}%"
+    result += suffix
 
     print(result, end=end, file=file, flush=flush)
