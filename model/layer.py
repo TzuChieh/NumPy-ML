@@ -426,7 +426,7 @@ class Convolution(Layer):
         z = self.try_get_from_cache(cache, 'z')
         if z is not None:
             return z
-
+        
         x = x.reshape(self.input_shape)
 
         # Match parameter dimensions for vectorized operation

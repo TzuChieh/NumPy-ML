@@ -1,5 +1,5 @@
-import dataset.idx_file as data
 import common as com
+from dataset import idx_file, Dataset
 from model.network import Network
 from model.optimizer import StochasticGradientDescent
 from model.layer import FullyConnected, Convolution, Pool, Reshape, Dropout
@@ -8,14 +8,18 @@ from model.preset import TrainingPreset
 
 import numpy as np
 
-import random
 import os
 
 
-def label_to_output(label):
-    output = np.zeros((1, 10, 1), dtype=np.float32)
-    output[0, int(label), 0] = 1
-    return output
+def images_to_inputs(images):
+    inputs = images.reshape((len(images), 1, images.shape[1], images.shape[2]))
+    return inputs
+
+def labels_to_outputs(labels):
+    outputs = np.empty((len(labels), 1, 10, 1), dtype=com.REAL_TYPE)
+    for label, output in zip(labels, outputs):
+        output[0, int(label), 0] = 1
+    return outputs
 
 def load_data():
     """
@@ -36,35 +40,28 @@ def load_data():
     8       Bag
     9       Ankle boot
     """
-    training_inputs = data.load("./dataset/fashion_mnist/train-images-idx3-ubyte.gz").astype(np.float32)
-    training_labels = data.load("./dataset/fashion_mnist/train-labels-idx1-ubyte.gz").astype(np.float32)
-    test_inputs = data.load("./dataset/fashion_mnist/t10k-images-idx3-ubyte.gz").astype(np.float32)
-    test_labels = data.load("./dataset/fashion_mnist/t10k-labels-idx1-ubyte.gz").astype(np.float32)
+    training_images = idx_file.load("./dataset/fashion_mnist/train-images-idx3-ubyte.gz")
+    training_labels = idx_file.load("./dataset/fashion_mnist/train-labels-idx1-ubyte.gz")
+    test_images = idx_file.load("./dataset/fashion_mnist/t10k-images-idx3-ubyte.gz")
+    test_labels = idx_file.load("./dataset/fashion_mnist/t10k-labels-idx1-ubyte.gz")
 
     # Normalize to [0, 1]
-    training_inputs = training_inputs / np.float32(255)
-    test_inputs = test_inputs / np.float32(255)
+    training_images = training_images.astype(com.REAL_TYPE) / com.REAL_TYPE(255)
+    test_images = test_images.astype(com.REAL_TYPE) / com.REAL_TYPE(255)
 
-    image_shape = (1, training_inputs.shape[1], training_inputs.shape[2])
-    training_data = [
-        (np.reshape(image, image_shape), label_to_output(label))
-        for image, label in zip(training_inputs, training_labels)]
-    test_data = [
-        (np.reshape(image, image_shape), label_to_output(label))
-        for image, label in zip(test_inputs, test_labels)]
+    training_set = Dataset(images_to_inputs(training_images), labels_to_outputs(training_labels))
+    test_set = Dataset(images_to_inputs(test_images), labels_to_outputs(test_labels))
     
-    return (training_data, test_data)
+    return (training_set, test_set)
 
 def load_basic_network_preset():
-    training_data, test_data = load_data()
+    training_set, test_set = load_data()
 
-    random.Random(6942).shuffle(training_data)
-    validation_data = training_data[50000:]
-    training_data = training_data[:50000]
+    training_set.shuffle(6942)
+    validation_set = training_set[50000:]
+    training_set = training_set[:50000]
 
-    image_shape = training_data[0][0].shape
-
-    fc1 = FullyConnected(image_shape, (1, 10, 10), activation=Tanh())
+    fc1 = FullyConnected(training_set.input_shape, (1, 10, 10), activation=Tanh())
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
     network = Network([fc1, fc2])
 
@@ -72,29 +69,27 @@ def load_basic_network_preset():
         10,
         eta=0.05,
         lambba=1,
-        num_workers=8)
+        num_workers=1)
 
     preset = TrainingPreset()
     preset.name = "Fashion-MNIST Basic Network"
     preset.network = network
     preset.optimizer = optimizer
-    preset.training_data = training_data
-    preset.validation_data = validation_data
-    preset.test_data = test_data
+    preset.training_set = training_set
+    preset.validation_set = validation_set
+    preset.test_set = test_set
     preset.num_epochs = 30
 
     return preset
 
 def load_network_preset():
-    training_data, test_data = load_data()
+    training_set, test_set = load_data()
 
-    random.Random(6942).shuffle(training_data)
-    validation_data = training_data[50000:]
-    training_data = training_data[:50000]
+    training_set.shuffle(6942)
+    validation_set = training_set[50000:]
+    training_set = training_set[:50000]
 
-    image_shape = training_data[0][0].shape
-
-    cov1 = Convolution(image_shape, (3, 3), 32, activation=Tanh())
+    cov1 = Convolution(training_set.input_shape, (3, 3), 32, activation=Tanh())
     cov2 = Convolution(cov1.output_shape, (3, 3), 32, activation=Tanh())
     rs1 = Reshape(cov2.output_shape, (1, cov2.output_shape[-2] * cov2.output_shape[-3], cov2.output_shape[-1]))
     fc1 = FullyConnected(rs1.output_shape, (1, 100, 1), activation=Tanh())
@@ -112,23 +107,21 @@ def load_network_preset():
     preset.name = "Fashion-MNIST Network"
     preset.network = network
     preset.optimizer = optimizer
-    preset.training_data = training_data
-    preset.validation_data = validation_data
-    preset.test_data = test_data
+    preset.training_set = training_set
+    preset.validation_set = validation_set
+    preset.test_set = test_set
     preset.num_epochs = 30
 
     return preset
 
 def load_deeper_network_preset():
-    training_data, test_data = load_data()
+    training_set, test_set = load_data()
 
-    random.Random(6942).shuffle(training_data)
-    validation_data = training_data[50000:]
-    training_data = training_data[:50000]
+    training_set.shuffle(6942)
+    validation_set = training_set[50000:]
+    training_set = training_set[:50000]
 
-    image_shape = training_data[0][0].shape
-
-    cov1 = Convolution(image_shape, (5, 5), 20)
+    cov1 = Convolution(training_set.input_shape, (5, 5), 20)
     mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
     cov2 = Convolution(mp1.output_shape, (5, 5), 40)
     mp2 = Pool(cov2.output_shape, (1, 2, 2), com.PoolingMode.MAX)
@@ -148,9 +141,9 @@ def load_deeper_network_preset():
     preset.name = "Fashion-MNIST Deeper Network"
     preset.network = network
     preset.optimizer = optimizer
-    preset.training_data = training_data
-    preset.validation_data = validation_data
-    preset.test_data = test_data
+    preset.training_set = training_set
+    preset.validation_set = validation_set
+    preset.test_set = test_set
     preset.num_epochs = 60
 
     return preset

@@ -3,6 +3,7 @@ from model.cost import CostFunction, CrossEntropy
 from model.layer import Layer
 
 import numpy as np
+import numpy.typing as np_type
 
 import pickle
 from pathlib import Path
@@ -48,20 +49,6 @@ class Network:
 
         return a
 
-    def performance(self, dataset):
-        """
-        Evaluate the effectiveness of the network.
-        @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
-        @return A tuple that contains (in order): number of correct outputs, fraction of correct outputs.
-        """
-        results = [
-            (np.argmax(self.feedforward(vec.vector_2d(x), is_training=False)), np.argmax(y))
-            for x, y in dataset]
-        
-        num_right_answers = sum(1 for network_y, y in results if network_y == y)
-        num_data = len(dataset)
-        return (num_right_answers, num_right_answers / num_data)
-
     def save(self, file_path):
         """
         @param file_path Path to the saved file. A suitable extension will be added automatically.
@@ -100,6 +87,17 @@ class Network:
         @return List of hidden layers in this network.
         """
         return self._hidden_layers
+    
+    @property
+    def input_shape(self) -> np_type.NDArray:
+        assert len(self._hidden_layers) > 0
+        return self._hidden_layers[0].input_shape
+    
+    @property
+    def output_shape(self) -> np_type.NDArray:
+        assert len(self._hidden_layers) > 0
+        return self._hidden_layers[-1].output_shape
+    
 
 def _has_valid_connections(layers: list[Layer]):
     """
