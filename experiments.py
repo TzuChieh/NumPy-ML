@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 def run():
-    preset = mnist.load_basic_network_preset()
-    # preset = mnist.load_network_preset()
+    # preset = mnist.load_basic_network_preset()
+    preset = mnist.load_network_preset()
     # preset = mnist.load_deeper_network_preset()
 
     # preset = fashion_mnist.load_basic_network_preset()

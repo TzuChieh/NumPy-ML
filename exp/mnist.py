@@ -74,8 +74,8 @@ def load_network_preset():
     validation_set = training_set[50000:]
     training_set = training_set[:50000]
 
-    cov1 = Convolution(training_set.input_shape, (5, 5), 20)
-    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
+    cov1 = Convolution(training_set.input_shape, (5, 5), 20, use_tied_bias=False)
+    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.EPooling.MAX)
     rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
     d1 = Dropout(rs1.output_shape, 0.5)
     fc1 = FullyConnected(d1.output_shape, (1, 100, 1), activation=Tanh())
@@ -107,9 +107,9 @@ def load_deeper_network_preset():
     training_set = training_set[:50000]
 
     cov1 = Convolution(training_set.input_shape, (5, 5), 20)
-    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.PoolingMode.MAX)
+    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.EPooling.MAX)
     cov2 = Convolution(mp1.output_shape, (5, 5), 40)
-    mp2 = Pool(cov2.output_shape, (1, 2, 2), com.PoolingMode.MAX)
+    mp2 = Pool(cov2.output_shape, (1, 2, 2), com.EPooling.MAX)
     rs1 = Reshape(mp2.output_shape, (1, mp2.output_shape[-2] * mp2.output_shape[-3], mp2.output_shape[-1]))
     d1 = Dropout(rs1.output_shape, 0.5)
     fc1 = FullyConnected(d1.output_shape, (1, 100, 1), activation=Tanh())

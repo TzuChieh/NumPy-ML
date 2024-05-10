@@ -165,7 +165,7 @@ def correlate(matrix: np_type.NDArray, kernel: np_type.NDArray, stride_shape=(1,
     assert np.array_equal(correlated.shape, strided_view.shape[:-nd]), f"shapes: {correlated.shape}, {strided_view.shape}"
     return correlated
 
-def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: com.PoolingMode) -> np_type.NDArray:
+def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: com.EPooling) -> np_type.NDArray:
     """
     Perform pooling operation on the matrix according to the specified shapes. Will compute with the pool's dimensions
     (broadcast the rest).
@@ -175,9 +175,9 @@ def pool(matrix: np_type.NDArray, kernel_shape, stride_shape, mode: com.PoolingM
     nd = len(kernel_shape)
     strided_view = sliding_window_view(matrix, kernel_shape, stride_shape)
     match mode:
-        case com.PoolingMode.MAX:
+        case com.EPooling.MAX:
             pooled = strided_view.max(axis=tuple(di for di in range(-nd, 0)))
-        case com.PoolingMode.AVERAGE:
+        case com.EPooling.AVERAGE:
             pooled = strided_view.mean(axis=tuple(di for di in range(-nd, 0)))
         case _:
             raise ValueError("unknown pooling mode specified")

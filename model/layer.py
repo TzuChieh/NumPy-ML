@@ -153,24 +153,42 @@ class Layer(ABC):
 
         return self.activation.eval(z)
 
-    def init_normal_params(self):
+    def init_params(self, mode: com.EParamInit, fan_in=None, fan_out=None):
         """
-        Randomly set initial parameters. The random values forms a standard normal distribution.
+        Initialize layer parameters. See https://stackoverflow.com/questions/42670274/how-to-calculate-fan-in-and-fan-out-in-xavier-initialization-for-neural-networks
+        for more information on how to determine `fan_in` and `fan_out` for a layer.
+        @param mode The method used for initializing layer parameters.
+        @param fan_in How many inputs will contribute to a single output.
+        @param fan_out How many outputs will contribute to a single input.
         """
         rng = np.random.default_rng()
-        b = rng.standard_normal(self.bias.shape, dtype=com.REAL_TYPE)
-        w = rng.standard_normal(self.weight.shape, dtype=com.REAL_TYPE)
-        self.update_params(b, w)
+        fan_in = self.input_shape[-3:].prod() if fan_in is None else fan_in
+        fan_out = self.output_shape[-3:].prod() if fan_out is None else fan_out
+        assert fan_in > 0
+        assert fan_out > 0
 
-    def init_scaled_normal_params(self):
-        """
-        Scaled (weights) version of `init_normal_params()`. In theory works better for sigmoid and tanh neurons.
-        """
-        rng = np.random.default_rng()
-        nx = self.input_vector_shape[-2]
-        b = rng.standard_normal(self.bias.shape, dtype=com.REAL_TYPE)
-        w = rng.standard_normal(self.weight.shape, dtype=com.REAL_TYPE) / np.sqrt(nx, dtype=com.REAL_TYPE)
-        self.update_params(b, w)
+        match mode:
+            case com.EParamInit.GAUSSIAN:
+                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
+                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype)
+                self.update_params(b, w)
+            case com.EParamInit.LECUN:
+                w_scale = np.sqrt(1 / fan_in, dtype=self.weight.dtype)
+                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
+                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype) * w_scale
+                self.update_params(b, w)
+            case com.EParamInit.XAVIER:
+                w_scale = np.sqrt(2 / (fan_in + fan_out), dtype=self.weight.dtype)
+                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
+                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype) * w_scale
+                self.update_params(b, w)
+            case com.EParamInit.KAIMING_HE:
+                w_scale = np.sqrt(2 / fan_in, dtype=self.weight.dtype)
+                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
+                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype) * w_scale
+                self.update_params(b, w)
+            case _:
+                raise ValueError("unknown parameter initialization mode specified")
 
     def freeze(self):
         """
@@ -267,7 +285,8 @@ class FullyConnected(Layer):
         self, 
         input_shape: typing.Iterable[int],
         output_shape: typing.Iterable[int], 
-        activation: ActivationFunction=Sigmoid()):
+        activation: ActivationFunction=Sigmoid(),
+        init_mode: com.EParamInit=com.EParamInit.LECUN):
         """
         @param input_shape Input dimensions, in (number of channels, height, width).
         @param output_shape Output dimensions, in (number of channels, height, width).
@@ -285,7 +304,7 @@ class FullyConnected(Layer):
         self._bias = np.zeros((nc, ny, 1), dtype=com.REAL_TYPE)
         self._weight = np.zeros((nc, ny, nx), dtype=com.REAL_TYPE)
 
-        self.init_scaled_normal_params()
+        self.init_params(init_mode)
 
     @property
     def bias(self):
@@ -359,7 +378,8 @@ class Convolution(Layer):
         num_output_features: int,
         stride_shape: typing.Iterable[int]=(1,), 
         activation: ActivationFunction=Sigmoid(),
-        use_tied_bias=False):
+        init_mode: com.EParamInit=com.EParamInit.XAVIER,
+        use_tied_bias=True):
         """
         @param kernel_shape Kernel dimensions, in (height, width). Will automatically infer the number of channels
         of the kernel from `input_shape`.
@@ -369,9 +389,9 @@ class Convolution(Layer):
         
         assert len(kernel_shape) == 2
 
-        input_channels = input_shape[-3]
+        num_input_channels = input_shape[-3]
         stride_shape = (1, *np.broadcast_to(stride_shape, len(kernel_shape)))
-        kernel_shape = (input_channels, *kernel_shape)
+        kernel_shape = (num_input_channels, *kernel_shape)
         correlated_shape = vec.correlate_shape(input_shape, kernel_shape, stride_shape)
         assert correlated_shape[-3] == 1
 
@@ -388,11 +408,15 @@ class Convolution(Layer):
         self._use_tied_bias = use_tied_bias
 
         # Each feature uses its own kernel and bias
-        bias_shape = (1, *correlated_shape[-2:]) if use_tied_bias else (1, 1, 1)
+        bias_shape = (1, 1, 1) if use_tied_bias else (1, *correlated_shape[-2:])
         self._bias = np.zeros((num_output_features, *bias_shape), dtype=com.REAL_TYPE)
         self._weight = np.zeros((num_output_features, *kernel_shape), dtype=com.REAL_TYPE)
 
-        self.init_scaled_normal_params()
+        k_height, k_width = self.kernel_shape[-2:]
+        self.init_params(
+            init_mode,
+            fan_in=k_height * k_width * num_input_channels,
+            fan_out=k_height * k_width * num_output_features)
 
     @property
     def bias(self):
@@ -447,12 +471,12 @@ class Convolution(Layer):
         x = x.reshape(self.input_shape)
         delta = delta.reshape(self.output_shape)
 
-        # Backpropagation for bias is per-feature summation/assignment (untied/tied) of gradient
+        # Backpropagation for bias is per-feature summation/assignment (tied/untied) of gradient
         if self._use_tied_bias:
-            del_b = delta[..., np.newaxis, :, :]
-        else:
             d_per_feature_sum = delta.sum(axis=(-2, -1), keepdims=True, dtype=delta.dtype)
             del_b = d_per_feature_sum[..., np.newaxis, :, :]
+        else:
+            del_b = delta[..., np.newaxis, :, :]
 
         # Match parameter dimensions for vectorized operation
         num_output_channels = self.output_shape[-3]
@@ -504,6 +528,7 @@ class Convolution(Layer):
 
     def __str__(self):
         kernel_info = "x".join(str(ks) for ks in self.kernel_shape)
+        kernel_info += "" if self._use_tied_bias else " (untied)"
         return f"{kernel_info} convolution: {self.input_shape} -> {self.output_shape} ({self.num_params})"
 
 
@@ -518,7 +543,7 @@ class Pool(Layer):
         self, 
         input_shape: typing.Iterable[int],
         kernel_shape: typing.Iterable[int],
-        mode: com.PoolingMode=com.PoolingMode.MAX,
+        mode: com.EPooling=com.EPooling.MAX,
         stride_shape: typing.Iterable[int]=None):
         """
         @param kernel_shape Pool dimensions.
@@ -595,11 +620,11 @@ class Pool(Layer):
             match self._mode:
                 # Gradient only propagate to the max element (think of an imaginary weight of 1, non-max element
                 # has 0 weight)
-                case com.PoolingMode.MAX:
+                case com.EPooling.MAX:
                     dCdx_pool.flat[x_pool.argmax()] += delta[pool_idx]
                 # Similar to the case of max pooling, average pooling is equivalent to an imaginary weight of
                 # the reciprocal of number of pool elements
-                case com.PoolingMode.AVERAGE:
+                case com.EPooling.AVERAGE:
                     dCdx_pool += delta[pool_idx] * self._rcp_num_kernel_elements
                 case _:
                     raise ValueError("unknown pooling mode specified")

@@ -12,6 +12,7 @@ This is my testground for the basics of machine learning. The implementation is 
 * Vincent Dumoulin and Francesco Visin's [A guide to convolution arithmetic for deep learning](https://arxiv.org/abs/1603.07285)
 * Jason Brownlee's [A Gentle Introduction to Dropout for Regularizing Deep Neural Networks](https://machinelearningmastery.com/dropout-for-regularizing-deep-neural-networks/) is an informative overview of dropout with lots of references
 * [This excellent answer](https://datascience.stackexchange.com/questions/117082/how-can-i-implement-dropout-in-scikit-learn/117083#117083) by Conner explains the practical aspect of dropout clearly
+* [This answer](https://stackoverflow.com/questions/42670274/how-to-calculate-fan-in-and-fan-out-in-xavier-initialization-for-neural-networks) by adityassrana clearly explains how to determine fan_in and fan_out when initializing layer weights (with illustration)
 
 ## Some Notes
 
