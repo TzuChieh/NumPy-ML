@@ -27,9 +27,9 @@ class Network:
 
     def feedforward(self, x, is_training):
         """
-        @param x The input vector.
+        @param x The layer input.
         @param is_training `True` if the intent is to train the network, `False` for inference.
-        @return The output vector.
+        @return The layer output.
         """
         # Freeze all layers if not for training
         if not is_training:

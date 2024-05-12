@@ -5,6 +5,7 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 
 
 import common as com
+import common.vector as vec
 
 import numpy as np
 
@@ -12,12 +13,16 @@ from abc import ABC, abstractmethod
 
 
 class CostFunction(ABC):
+    """
+    Abstraction for a cost function. The interface accepts inputs with higher dimensional components.
+    In such case, the calculation will simply broadcast to those dimensions.
+    """
     @abstractmethod
     def eval(self, a, y):
         """
-        @param a The input vector.
-        @param y The desired input vector.
-        @return A vector of cost values.
+        @param a The output vector.
+        @param y The desired output vector.
+        @return Vector of cost values.
         """
         pass
 
@@ -26,9 +31,9 @@ class CostFunction(ABC):
         """
         This method would have return a jacobian like `ActivationFunction.jacobian()`. However, currently all
         implementations are element-wise independent so we stick with returning a vector.
-        @param a The input vector.
-        @param y The desired input vector.
-        @return A vector of derived cost values.
+        @param a The output vector.
+        @param y The desired output vector.
+        @return Vector of derived cost values.
         """
         pass
 
@@ -36,10 +41,13 @@ class CostFunction(ABC):
 class Quadratic(CostFunction):
     def eval(self, a, y):
         """
-        Basically computing the squared error between activations `a` and desired output `y`. The 0.5 multiplier
-        is to make its derived form cleaner (for convenience).
+        Basically computing the per-element squared error between activations `a` and desired output `y`.
+        The 0.5 multiplier is to make its derived form cleaner (for convenience).
         """
-        C = com.REAL_TYPE(0.5) * np.linalg.norm(a - y) ** 2
+        assert vec.is_vector_2d(a)
+        assert vec.is_vector_2d(y)
+
+        C = com.REAL_TYPE(0.5) * np.linalg.norm(a - y, axis=-2, keepdims=True) ** 2
         return C
     
     def derived_eval(self, a, y):
@@ -49,8 +57,14 @@ class Quadratic(CostFunction):
 
 class CrossEntropy(CostFunction):
     def eval(self, a, y):
+        """
+        Calculates cross-entropy error on a per-element basis.
+        """
+        assert vec.is_vector_2d(a)
+        assert vec.is_vector_2d(y)
+
         a = self._adapt_a(a)
-        C = np.sum(-y * np.log(a) - (1 - y) * np.log(1 - a))
+        C = np.sum(-y * np.log(a) - (1 - y) * np.log(1 - a), axis=-2, keepdims=True)
         return C
 
     def derived_eval(self, a, y):

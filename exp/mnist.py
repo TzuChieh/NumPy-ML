@@ -21,7 +21,7 @@ def labels_to_outputs(labels):
         output[0, int(label), 0] = 1
     return outputs
 
-def load_data():
+def load_data(batch_size):
     """
     Loads MNIST dataset. The images are handwritten digits labeled in [0, 9].
     """
@@ -34,24 +34,23 @@ def load_data():
     training_images = training_images.astype(com.REAL_TYPE) / com.REAL_TYPE(255)
     test_images = test_images.astype(com.REAL_TYPE) / com.REAL_TYPE(255)
 
-    training_set = Dataset(images_to_inputs(training_images), labels_to_outputs(training_labels))
-    test_set = Dataset(images_to_inputs(test_images), labels_to_outputs(test_labels))
+    training_set = Dataset(images_to_inputs(training_images), labels_to_outputs(training_labels), batch_size=batch_size)
+    test_set = Dataset(images_to_inputs(test_images), labels_to_outputs(test_labels), batch_size=batch_size)
     
     return (training_set, test_set)
 
 def load_basic_network_preset():
-    training_set, test_set = load_data()
+    training_set, test_set = load_data(batch_size=32)
 
     training_set.shuffle(6942)
     validation_set = training_set[50000:]
     training_set = training_set[:50000]
 
-    fc1 = FullyConnected(training_set.input_shape, (1, 10, 10), activation=Tanh())
+    fc1 = FullyConnected(training_set.input_shape, (1, 10, 10), activation=Sigmoid())
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
     network = Network([fc1, fc2])
 
     optimizer = StochasticGradientDescent(
-        10,
         eta=0.05,
         lambba=1,
         num_workers=1)
@@ -63,18 +62,18 @@ def load_basic_network_preset():
     preset.training_set = training_set
     preset.validation_set = validation_set
     preset.test_set = test_set
-    preset.num_epochs = 30
+    preset.num_epochs = 10
 
     return preset
 
 def load_network_preset():
-    training_set, test_set = load_data()
+    training_set, test_set = load_data(batch_size=20)
 
     training_set.shuffle(6942)
     validation_set = training_set[50000:]
     training_set = training_set[:50000]
 
-    cov1 = Convolution(training_set.input_shape, (5, 5), 20, use_tied_bias=False)
+    cov1 = Convolution(training_set.input_shape, (5, 5), 20)
     mp1 = Pool(cov1.output_shape, (1, 2, 2), com.EPooling.MAX)
     rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
     d1 = Dropout(rs1.output_shape, 0.5)
@@ -83,7 +82,6 @@ def load_network_preset():
     network = Network([cov1, mp1, rs1, d1, fc1, fc2])
 
     optimizer = StochasticGradientDescent(
-        20,
         eta=0.05,
         lambba=1,
         num_workers=os.cpu_count())
@@ -100,7 +98,7 @@ def load_network_preset():
     return preset
 
 def load_deeper_network_preset():
-    training_set, test_set = load_data()
+    training_set, test_set = load_data(batch_size=20)
 
     training_set.shuffle(6942)
     validation_set = training_set[50000:]
@@ -117,7 +115,6 @@ def load_deeper_network_preset():
     network = Network([cov1, mp1, cov2, mp2, rs1, d1, fc1, fc2])
 
     optimizer = StochasticGradientDescent(
-        20,
         eta=0.04,
         lambba=1,
         num_workers=os.cpu_count())

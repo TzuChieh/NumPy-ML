@@ -59,6 +59,33 @@ def diag_from_vector_2d(m: np_type.NDArray) -> np_type.NDArray:
     assert len(diag.shape) == len(m.shape), f"shapes: {diag.shape}, {m.shape}"
     return diag
 
+def reshape_lower(a: np_type.NDArray, shape) -> np_type.NDArray:
+    """
+    Reshape the lower dimensions of an array while keeping higher dimensions intact.
+    @param a The array to reshape.
+    @param shape The lower dimensions to reshape into. `a.shape[0]` is the highest dimension and `a.shape[-1]` is
+    the lowest dimension.
+    @return A reshaped `a` with matching lower dimensions, while higher dimensions (if any) are kept. For example,
+    an array `a` of shape (3, 2, 1) will be reshaped into (3, 1, 2) after `a = reshape_lower(a, (1, 2))`.
+    """
+    return a.reshape((*a.shape[:-len(shape)], *shape))
+
+def argmax_lower(a: np_type.NDArray, num_dims) -> np_type.NDArray:
+    """
+    Similar to `numpy.argmax()`, except this helper works on lower dimensions of an array and returns non-flat
+    indices suitable for use with NumPy advanced indexing.
+    @param a The array to perform argmax.
+    @param num_dims Number of lower dimensions to perform argmax in. `a.shape[0]` is the highest dimension and
+    `a.shape[-1]` is the lowest dimension.
+    @return Tuple of array of indices into the last `num_dims` dimensions of `a`, where each index corresponds to the
+    maximum element found. The tuple is suitable for use with NumPy advanced indexing.
+    """
+    higher_shape = a.shape[:-num_dims]
+    lower_shape = a.shape[-num_dims:]
+    lower_flattened_a = a.reshape((*higher_shape, np.prod(lower_shape)))
+    max_flat_indices = lower_flattened_a.argmax(axis=-1)
+    return np.unravel_index(max_flat_indices, lower_shape)
+
 def correlate_shape(matrix_shape, kernel_shape, stride_shape=(1,)) -> np_type.NDArray:
     """
     Given the shapes, computes the resulting shape after the correlation. Will compute with the kernel's dimensions

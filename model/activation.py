@@ -14,7 +14,8 @@ from abc import ABC, abstractmethod
 
 class ActivationFunction(ABC):
     """
-    Abstraction for an activation function.
+    Abstraction for an activation function. The interface accepts inputs with higher dimensional components.
+    In such case, the calculation will simply broadcast to those dimensions.
     """
     @abstractmethod
     def eval(self, z: np_typing.NDArray):
@@ -50,6 +51,7 @@ class ActivationFunction(ABC):
         """
         Diagonal version of `jacobian()` in the implicit form. Jacobian matrix of a multivariate function is simply
         a diagonal matrix if it is element-wise independent.
+        @param z The input vector.
         @return The diagonal elements of a diagonal jacobian, in the form of a vector. Broadcast accordingly to
         higher dimensions of `z`. `None` if the jacobian is not diagonal.
         @see `jacobian()`
@@ -65,6 +67,7 @@ class ActivationFunction(ABC):
         """
         Perform matrix multiplication with the jacobian. This method can potentially be more efficient as the jacobian
         may not need to be explicitly obtained via `jacobian()`.
+        @param z The input vector.
         @param right The matrix to multiply on the right side of the jacobian.
         @param left The matrix to multiply on the left side of the jacobian.
         """

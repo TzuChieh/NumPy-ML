@@ -25,8 +25,8 @@ cache instance can be used across multiple layers by first using the layer insta
 
 class Layer(ABC):
     """
-    Abstraction for a single layer in a neural network. Parameters should be of the defined shape (e.g., a vector)
-    in the lowest dimensions, and be broadcastable to higher dimensions.
+    Abstraction for a single layer in a neural network. Implementations should also be aware that inputs and
+    outputs of an layer may be batched (with extra dimensions).
     """
     def __init__(self):
         super().__init__()
@@ -61,6 +61,8 @@ class Layer(ABC):
     @abstractmethod
     def input_shape(self) -> np_type.NDArray:
         """
+        Input shape have at least 3 defined dimensions (see return value), higher dimensions are left for the user
+        to define.
         @return The dimensions of input in (..., number of channels, height, width).
         """
         pass
@@ -69,6 +71,8 @@ class Layer(ABC):
     @abstractmethod
     def output_shape(self) -> np_type.NDArray:
         """
+        Output shape have at least 3 defined dimensions (see return value), higher dimensions are left for the user
+        to define.
         @return The dimensions of output in (..., number of channels, height, width).
         """
         pass
@@ -76,7 +80,7 @@ class Layer(ABC):
     @abstractmethod
     def update_params(self, bias: np_type.NDArray, weight: np_type.NDArray):
         """
-        Update layer parameters.
+        Update layer parameters. The new parameters must be compatible to the to-be-updated ones.
         @param bias The new bias parameters.
         @param weight The new weight parameters.
         """
@@ -85,17 +89,17 @@ class Layer(ABC):
     @abstractmethod
     def weighted_input(self, x: np_type.NDArray, cache: LayerCache) -> np_type.NDArray:
         """
-        @param x The input vector.
+        @param x The layer input, with lower dimensions compatible to `input_shape`.
         @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
-        @return The weighted input vector (z).
+        @return The weighted input (z), with lower dimensions compatible to `output_shape`.
         """
         pass
 
     @abstractmethod
     def derived_params(self, x: np_type.NDArray, delta: np_type.NDArray, cache: LayerCache):
         """
-        @param x The input vector.
-        @param delta The error vector (dCdz).
+        @param x The layer input, with lower dimensions compatible to `input_shape`.
+        @param delta The error (dCdz), with lower dimensions compatible to `output_shape`.
         @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
         @return Gradient of `bias` and `weight` in the form `(del_b, del_w)`. A derived term could be an empty array
         if there is no such parameter (e.g., a layer with empty bias could return `(empty array, del_w)`).
@@ -105,10 +109,11 @@ class Layer(ABC):
     @abstractmethod
     def backpropagate(self, x: np_type.NDArray, delta: np_type.NDArray, cache: LayerCache) -> np_type.NDArray:
         """
-        @param x The input vector.
-        @param delta The error vector (dCdz).
+        @param x The layer input, with lower dimensions compatible to `input_shape`.
+        @param delta The error (dCdz), with lower dimensions compatible to `output_shape`.
         @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
-        @return The error vector (dCdx); or equivalently, "dCda'" (where "a'" is the activation from previous layer).
+        @return The error (dCdx); or equivalently, "dCda'" (where "a'" is the activation from previous layer),
+        with lower dimensions compatible to `input_shape`.
         """
         pass
 
@@ -143,9 +148,9 @@ class Layer(ABC):
 
     def feedforward(self, x, cache: LayerCache=None):
         """
-        @param x The input vector.
+        @param x The layer input, with lower dimensions compatible to `input_shape`.
         @param cache Implementation defined extra arguments (e.g., to facilitate the calculation).
-        @return Activation vector of the layer.
+        @return Output activation of the layer, with lower dimensions compatible to `output_shape`.
         """
         z = self.try_get_from_cache(cache, 'z')
         if z is None:
@@ -162,8 +167,8 @@ class Layer(ABC):
         @param fan_out How many outputs will contribute to a single input.
         """
         rng = np.random.default_rng()
-        fan_in = self.input_shape[-3:].prod() if fan_in is None else fan_in
-        fan_out = self.output_shape[-3:].prod() if fan_out is None else fan_out
+        fan_in = self.input_shape[-2:].prod() if fan_in is None else fan_in
+        fan_out = self.output_shape[-2:].prod() if fan_out is None else fan_out
         assert fan_in > 0
         assert fan_out > 0
 
@@ -216,6 +221,33 @@ class Layer(ABC):
             return None
         
         return cache[self][name]
+    
+    def as_input(self, a: np_type.NDArray) -> np_type.NDArray:
+        """
+        @return A reshaped `a` with matching input dimensions, while higher dimensions (if any) are kept.
+        """
+        return vec.reshape_lower(a, self.input_shape)
+    
+    def as_output(self, a: np_type.NDArray) -> np_type.NDArray:
+        """
+        @return A reshaped `a` with matching output dimensions, while higher dimensions (if any) are kept.
+        """
+        return vec.reshape_lower(a, self.output_shape)
+    
+    def _with_compatible_input_shape(self, a: np.ndarray) -> bool:
+        return self._with_compatible_shape(a, self.input_shape)
+
+    def _with_compatible_output_shape(self, a: np.ndarray) -> bool:
+        return self._with_compatible_shape(a, self.output_shape)
+    
+    @staticmethod
+    def _with_compatible_shape(a: np_type.NDArray, shape) -> bool:
+        if __debug__:
+            assert np.array_equal(a.shape[-len(shape):], shape), (
+                   f"incompatible layer I/O shapes: {a.shape} is not compatible to {shape} (layer)")
+            return True
+        else:
+            raise NotImplementedError("this method is intended to be used in an assert statement")
 
 
 class Reshape(Layer):
@@ -235,10 +267,10 @@ class Reshape(Layer):
         self._input_shape = np.array(input_shape)
         self._output_shape = np.array(output_shape)
 
-        if self.input_shape.prod() != self.output_shape.prod():
-            raise ValueError(f"cannot convert input shape from {self.input_shape} to {self.output_shape}")
+        if np.array(input_shape).prod() != np.array(output_shape).prod():
+            raise ValueError(f"cannot convert input shape from {input_shape} to {output_shape}")
         
-        if np.array_equal(self.input_shape, self.output_shape):
+        if np.array_equal(input_shape, output_shape):
             print("A reshape layer effectively does nothing, consider removing it.")
 
     @property
@@ -265,13 +297,13 @@ class Reshape(Layer):
         pass
     
     def weighted_input(self, x, cache):
-        return x.reshape(self.output_vector_shape)
+        return self.as_output(x)
 
     def derived_params(self, x, delta, cache):
         return (np.array([]), np.array([]))
 
     def backpropagate(self, x, delta, cache):
-        return delta.reshape(self.input_vector_shape)
+        return self.as_input(delta)
     
     def __str__(self):
         return f"reshape: {self.input_shape} -> {self.output_shape} (0)"
@@ -279,7 +311,8 @@ class Reshape(Layer):
 
 class FullyConnected(Layer):
     """
-    A fully connected network layer.
+    A fully connected network layer. The heights and widths of the specified shapes will be automatically flattened and
+    fully connected internally. Higher dimensions (>= 3, including channel dimension) remain separate (as independent units).
     """
     def __init__(
         self, 
@@ -288,21 +321,23 @@ class FullyConnected(Layer):
         activation: ActivationFunction=Sigmoid(),
         init_mode: com.EParamInit=com.EParamInit.LECUN):
         """
-        @param input_shape Input dimensions, in (number of channels, height, width).
-        @param output_shape Output dimensions, in (number of channels, height, width).
+        @param input_shape Input dimensions, in (..., number of channels, height, width).
+        @param output_shape Output dimensions, in (..., number of channels, height, width).
         """
         super().__init__()
+
+        assert input_shape[:-2] == output_shape[:-2], (
+            f"higher input dimensions {input_shape[:-2]} must match higher output dimensions {output_shape[:-2]}")
+
         self._input_shape = np.array(input_shape)
         self._output_shape = np.array(output_shape)
         self._activation = activation
-
-        assert input_shape[-3] == output_shape[-3], (
-            f"number of input channels {input_shape[-3]} must match number of output channels {output_shape[-3]}")
-        nc = self.input_shape[-3]
+        
+        nh = self.input_shape[:-2].prod()
         ny = self.output_vector_shape[-2]
         nx = self.input_vector_shape[-2]
-        self._bias = np.zeros((nc, ny, 1), dtype=com.REAL_TYPE)
-        self._weight = np.zeros((nc, ny, nx), dtype=com.REAL_TYPE)
+        self._bias = np.zeros((nh, ny, 1), dtype=com.REAL_TYPE)
+        self._weight = np.zeros((nh, ny, nx), dtype=com.REAL_TYPE)
 
         self.init_params(init_mode)
 
@@ -341,25 +376,35 @@ class FullyConnected(Layer):
         if z is not None:
             return z
 
+        x = vec.reshape_lower(x, self.input_vector_shape)
+
         b = self._bias
         w = self._weight
         z = w @ x + b
 
+        z = self.as_output(z)
         self.try_cache(cache, 'z', z)
         return z
 
     def derived_params(self, x, delta, cache):
-        del_b = np.copy(delta)
+        x = vec.reshape_lower(x, self.input_vector_shape)
+        delta = vec.reshape_lower(delta, self.output_vector_shape)
+
+        del_b = delta
         x_T = vec.transpose_2d(x)
         del_w = delta @ x_T
+
         return (del_b, del_w)
 
     def backpropagate(self, x, delta, cache):
         assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
 
+        delta = vec.reshape_lower(delta, self.output_vector_shape)
+
         w_T = vec.transpose_2d(self._weight)
         dCdx = w_T @ delta
-        return dCdx
+        
+        return self.as_input(dCdx)
     
     def __str__(self):
         return f"fully connected: {self.input_shape} -> {self.output_shape} ({self.num_params})"
@@ -381,8 +426,9 @@ class Convolution(Layer):
         init_mode: com.EParamInit=com.EParamInit.XAVIER,
         use_tied_bias=True):
         """
-        @param kernel_shape Kernel dimensions, in (height, width). Will automatically infer the number of channels
-        of the kernel from `input_shape`.
+        @param kernel_shape Kernel 2-D dimensions, in (height, width). Will automatically infer the number of channels
+        of the kernel from `input_shape` and integrate it to the shape automatically. This means a single convolution
+        window will cover all input channels and produce a single value.
         @param stride_shape Stride dimensions. The shape must be broadcastable to `kernel_shape`.
         """
         super().__init__()
@@ -397,7 +443,7 @@ class Convolution(Layer):
 
         if not np.all(np.greater(correlated_shape, 0)):
             raise ValueError(
-                (f"Convoluted shape has 0-sized dimension, this will result in information loss. "
+                (f"Convoluted shape {correlated_shape} has 0-sized dimension, this will result in information loss. "
                  "input: {input_shape}, kernel: {kernel_shape}, features: {num_output_features}, stride: {stride_shape}"))
 
         self._input_shape = np.array(input_shape)
@@ -451,9 +497,9 @@ class Convolution(Layer):
         if z is not None:
             return z
         
-        x = x.reshape(self.input_shape)
+        assert self._with_compatible_input_shape(x)
 
-        # Match parameter dimensions for vectorized operation
+        # Match parameter dimensions for vectorized operation (pad an output channel dimension like weight and bias)
         num_output_channels = self.output_shape[-3]
         x_v = np.expand_dims(x, -4)
         x_v = np.broadcast_to(x_v, (*x.shape[:-3], num_output_channels, *x.shape[-3:]))
@@ -461,15 +507,17 @@ class Convolution(Layer):
         # Perform correlation for each channel (feature map)
         z_v = vec.correlate(x_v, self.weight, self.stride_shape, num_kernel_dims=3)
         z_v += self.bias
-            
-        z = z_v.reshape(self.output_vector_shape)
 
+        assert z_v.shape[-3] == 1, f"number of input channels {z_v.shape[-3]} does not collapse into single feature"
+        z_v = z_v.squeeze(axis=-3)
+
+        z = self.as_output(z_v)
         self.try_cache(cache, 'z', z)
         return z
 
     def derived_params(self, x, delta, cache):
-        x = x.reshape(self.input_shape)
-        delta = delta.reshape(self.output_shape)
+        assert self._with_compatible_input_shape(x)
+        assert self._with_compatible_output_shape(delta)
 
         # Backpropagation for bias is per-feature summation/assignment (tied/untied) of gradient
         if self._use_tied_bias:
@@ -478,7 +526,7 @@ class Convolution(Layer):
         else:
             del_b = delta[..., np.newaxis, :, :]
 
-        # Match parameter dimensions for vectorized operation
+        # Match parameter dimensions for vectorized operation (pad an output/input channel dimension like weight and bias)
         num_output_channels = self.output_shape[-3]
         x_v = np.expand_dims(x, -4)
         x_v = np.broadcast_to(x_v, (*x.shape[:-3], num_output_channels, *x.shape[-3:]))
@@ -494,8 +542,7 @@ class Convolution(Layer):
 
     def backpropagate(self, x, delta, cache):
         assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
-
-        delta = delta.reshape(self.output_shape)
+        assert self._with_compatible_output_shape(delta)
 
         # Prepare kernel and delta
         # (not flipping or padding dimensions before channel as we are not sliding over them during forward pass)
@@ -503,7 +550,7 @@ class Convolution(Layer):
         pad_shape = (0, self.kernel_shape[-2] - 1, self.kernel_shape[-1] - 1)
         dilated_delta = vec.dilate(delta, self.stride_shape, pad_shape=pad_shape)
 
-        # Match parameter dimensions for vectorized operation
+        # Match parameter dimensions for vectorized operation (pad an input channel dimension like weight and bias)
         # (the shape is to correlate with kernel for bringing back the number of channels of the input)
         num_input_channels = self.input_shape[-3]
         dilated_delta_v = np.expand_dims(dilated_delta, -3)
@@ -515,8 +562,7 @@ class Convolution(Layer):
         dCdx_v = vec.correlate(dilated_delta_v, reversed_k, num_kernel_dims=2)
         dCdx_v = dCdx_v.sum(axis=-4)
 
-        dCdx = dCdx_v.reshape(self.input_vector_shape)
-        return dCdx
+        return self.as_input(dCdx_v)
     
     @property
     def kernel_shape(self) -> np_type.NDArray:
@@ -535,9 +581,9 @@ class Convolution(Layer):
 class Pool(Layer):
     """
     A max pooling layer.
-    @note Currently the implementation of pooling is fairly slow--using manual iteration on the Python side for
-    each pool window. For a simple network (~4 layers) with just one max pooling (2 -> 1 feature) slows down each
-    epoch by a factor of ~2. TL;DR: a faster `backpropagate()` implementation is much appreciated.
+    @note This is a self note: Currently the implementation of pooling is fairly slow--using manual iteration on
+    the Python side for each pool window. For a simple network (~4 layers) with just one max pooling (2 -> 1 feature)
+    slows down each epoch by a factor of ~2. TL;DR: a faster `backpropagate()` implementation is much appreciated.
     """
     def __init__(
         self, 
@@ -553,9 +599,10 @@ class Pool(Layer):
         super().__init__()
         
         stride_shape = kernel_shape if stride_shape is None else np.broadcast_to(stride_shape, len(kernel_shape))
+        pooled_shape = vec.pool_shape(input_shape, kernel_shape, stride_shape)
 
         self._input_shape = np.array(input_shape)
-        self._output_shape = np.array(vec.pool_shape(input_shape, kernel_shape, stride_shape))
+        self._output_shape = np.array(pooled_shape)
         self._kernel_shape = np.array(kernel_shape)
         self._rcp_num_kernel_elements = np.reciprocal(self._kernel_shape.prod(), dtype=com.REAL_TYPE)
         self._mode = mode
@@ -589,11 +636,11 @@ class Pool(Layer):
         if z is not None:
             return z
 
-        x = x.reshape(self.input_shape)
+        assert self._with_compatible_input_shape(x)
+        
         z = vec.pool(x, self._kernel_shape, self._stride_shape, self._mode)
-        assert np.array_equal(z.shape, self.output_shape), f"shapes: {z.shape}, {self.output_shape}"
-        z = z.reshape(self.output_vector_shape)
 
+        assert self._with_compatible_output_shape(z)
         self.try_cache(cache, 'z', z)
         return z
 
@@ -602,26 +649,34 @@ class Pool(Layer):
 
     def backpropagate(self, x, delta, cache):
         assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
+        assert self._with_compatible_input_shape(x)
+        assert self._with_compatible_output_shape(delta)
 
-        x = x.reshape(self.input_shape)
-        delta = delta.reshape(self.output_shape)
         x_pool_view = vec.sliding_window_view(x, self._kernel_shape, self._stride_shape)
+        
+        # Slices for potential extra dimensions in the input and output
+        higher_slices = [slice(None)] * (len(x.shape) - len(self.input_shape))
 
-        dCdx = np.zeros(self.input_shape, dtype=delta.dtype)
+        # Perform operations pool by pool
+        dCdx = np.zeros(x.shape, dtype=x.dtype)
         dCdx_pool_view = vec.sliding_window_view(dCdx, self._kernel_shape, self._stride_shape, is_writeable=True)
         for pool_idx in np.ndindex(*self.output_shape):
+            pool_idx = (*higher_slices, *pool_idx)
             x_pool = x_pool_view[pool_idx]
             dCdx_pool = dCdx_pool_view[pool_idx]
 
             # Lots of indexing here, make sure we are getting expected shapes
-            assert np.array_equal(x_pool.shape, self._kernel_shape), f"shapes: {x_pool.shape}, {self._kernel_shape}"
-            assert np.array_equal(x_pool.shape, dCdx_pool.shape), f"shapes: {x_pool.shape}, {dCdx_pool.shape}"
+            assert np.array_equal(x_pool.shape[-len(self._kernel_shape):], self._kernel_shape), (
+                   f"shapes: {x_pool.shape}, {self._kernel_shape}")
+            assert np.array_equal(x_pool.shape, dCdx_pool.shape), (
+                   f"shapes: {x_pool.shape}, {dCdx_pool.shape}")
             
             match self._mode:
                 # Gradient only propagate to the max element (think of an imaginary weight of 1, non-max element
                 # has 0 weight)
                 case com.EPooling.MAX:
-                    dCdx_pool.flat[x_pool.argmax()] += delta[pool_idx]
+                    pool_argmax = vec.argmax_lower(x_pool, len(self._kernel_shape))
+                    dCdx[*higher_slices, *pool_argmax] += delta[pool_idx]
                 # Similar to the case of max pooling, average pooling is equivalent to an imaginary weight of
                 # the reciprocal of number of pool elements
                 case com.EPooling.AVERAGE:
@@ -629,7 +684,8 @@ class Pool(Layer):
                 case _:
                     raise ValueError("unknown pooling mode specified")
 
-        return dCdx.reshape(self.input_vector_shape)
+        assert self._with_compatible_input_shape(dCdx)
+        return dCdx
     
     def __str__(self):
         return f"pool {self._mode}: {self.input_shape} -> {self.output_shape} (0)"
@@ -648,7 +704,7 @@ class Dropout(Layer):
         """
         super().__init__()
 
-        self._io_shape = io_shape
+        self._io_shape = np.array(io_shape)
         self._drop_prob = com.REAL_TYPE(drop_prob)
 
         if drop_prob <= 0.0 or 1.0 <= drop_prob:
@@ -711,7 +767,7 @@ class Dropout(Layer):
     
     def __str__(self):
         p = self._drop_prob
-        expected_shape = self.output_shape * p
+        expected_shape = self.output_shape[1:] * p
         return f"dropout {p * 100}%: {self.input_shape} -> {self.output_shape} (expected: {expected_shape}) (0)"
 
     def _apply_drop(self, x, cache):

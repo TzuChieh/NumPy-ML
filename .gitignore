@@ -558,6 +558,12 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# =============================================================================
 # Project specific:
+# =============================================================================
+
 # General outputs
 /output/
+
+# CIFAR-10 dataset
+/dataset/cifar_10/cifar-10-*
