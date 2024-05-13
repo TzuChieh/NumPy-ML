@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as np_type
 
 import sys
+import copy
 from abc import ABC, abstractmethod
 from timeit import default_timer as timer
 from datetime import timedelta
@@ -27,7 +28,8 @@ class Optimizer(ABC):
         network: Network,
         num_epochs,
         training_set: Dataset,
-        print_progress=False):
+        print_progress=False,
+        sync_param_update=True):
         """
         Train the given network.
         """
@@ -120,7 +122,8 @@ class StochasticGradientDescent(Optimizer):
         network: Network,
         num_epochs,
         training_set: Dataset,
-        print_progress=False):
+        print_progress=False,
+        sync_param_update=True):
         """
         @param network The network to train.
         """
@@ -131,18 +134,10 @@ class StochasticGradientDescent(Optimizer):
             if print_progress:
                 self._print_progress(0)
 
-            # Train with mini batches
-            for bi, (bx, by) in enumerate(training_set.batch_iter()):
-                self._mini_batch_param_update(bx, by, network, len(training_set))
-
-                if print_progress:
-                    fraction_done = (bi + 1) / training_set.num_batches
-                    seconds_spent = timedelta(seconds=(timer() - start_time)).total_seconds()
-                    ms_per_batch = seconds_spent / (bi + 1) * 1000
-                    mins_left = seconds_spent / 60 / fraction_done * (1 - fraction_done)
-                    self._print_progress(
-                        fraction_done,
-                        suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
+            if sync_param_update:
+                self._mini_batch_epoch(training_set, network, print_progress=print_progress)
+            else:
+                self._async_mini_batch_epoch(training_set, network, print_progress=print_progress)
 
             self._total_epochs += 1
 
@@ -200,28 +195,102 @@ class StochasticGradientDescent(Optimizer):
     def total_epochs(self):
         return self._total_epochs
 
-    def _mini_batch_param_update(self, bx, by, network: Network, num_training_samples):
-        """
-        @param num_training_samples Number of training samples `n`. To see why dividing by `n` is used for regularization,
-        see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
-        """
-        del_bs, del_ws = _mini_batch_sgd_backpropagation(
-            bx, by, network, self._gradient_clip_norm, self._workers)
+    def _mini_batch_epoch(self, training_set: Dataset, network: Network, print_progress=False):
+        start_time = timer()
+        num_training_samples = len(training_set)
 
-        self._param_update(del_bs, del_ws, network, num_training_samples)
+        # Train one epoch with mini batches
+        for bi, (bx, by) in enumerate(training_set.batch_iter()):
+            del_bs, del_ws, _ = _mini_batch_sgd_backpropagation(
+                bx, by, network, self._gradient_clip_norm, self._workers)
+            
+            self._param_update(del_bs, del_ws, network, num_training_samples)
 
-    def _param_update(self, del_bs, del_ws, network: Network, num_training_samples):
+            if print_progress:
+                fraction_done = (bi + 1) / training_set.num_batches
+                seconds_spent = timedelta(seconds=(timer() - start_time)).total_seconds()
+                ms_per_batch = seconds_spent / (bi + 1) * 1000
+                mins_left = seconds_spent / 60 / fraction_done * (1 - fraction_done)
+                self._print_progress(
+                    fraction_done,
+                    prefix="MBSGD: ",
+                    suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
+
+    def _async_mini_batch_epoch(self, training_set: Dataset, network: Network, print_progress=False):
+        assert self._workers is not None
+
+        start_time = timer()
+        num_training_samples = len(training_set)
+
+        # Train with mini batches
+        running_batches = set()
+        param_timestamp = 0
+        for bi, (bx, by) in enumerate(training_set.batch_iter()):
+            # There is an internal thread that copies the arguments concurrently, and there will be a race if
+            # we are also updating `network` here, see https://stackoverflow.com/questions/22999598/why-doesnt-concurrent-futures-make-a-copy-of-arguments.
+            # This copy may be redundant though if we do this like Hogwild!, but we still need to avoid race for
+            # other data in `network`.
+            network_snapshot = copy.deepcopy(network)
+
+            new_batch = self._workers.submit(
+                _mini_batch_sgd_backpropagation,
+                bx,
+                by,
+                network_snapshot,
+                self._gradient_clip_norm,
+                timestamp=param_timestamp)
+            
+            running_batches.add(new_batch)
+
+            while True:
+                # Wait for new gradients
+                too_many_batches = len(running_batches) >= self._num_workers
+                no_more_batches = bi + 1 == training_set.num_batches and running_batches
+                if too_many_batches or no_more_batches:
+                    done_batches, running_batches = futures.wait(running_batches, return_when=futures.FIRST_COMPLETED)
+                else:
+                    break
+
+                # Update network parameters
+                for done_batch in done_batches:
+                    del_bs, del_ws, gradient_timestamp = done_batch.result()
+
+                    self._param_update(
+                        del_bs, 
+                        del_ws, 
+                        network, 
+                        num_training_samples,
+                        gradient_staleness=param_timestamp - gradient_timestamp)
+                    param_timestamp += 1
+
+                if print_progress:
+                    fraction_done = param_timestamp / training_set.num_batches
+                    seconds_spent = timedelta(seconds=(timer() - start_time)).total_seconds()
+                    ms_per_batch = seconds_spent / param_timestamp * 1000
+                    mins_left = seconds_spent / 60 / fraction_done * (1 - fraction_done)
+                    self._print_progress(
+                        fraction_done,
+                        prefix="Async MBSGD: ",
+                        suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
+
+        assert not running_batches and param_timestamp == training_set.num_batches
+
+    def _param_update(self, del_bs, del_ws, network: Network, num_training_samples, gradient_staleness=0):
         """
-        @param n Number of training samples. To see why dividing by `n` is used for regularization,
+        @param num_training_samples Number of training samples. To see why dividing by `n` is used for regularization,
         see https://datascience.stackexchange.com/questions/57271/why-do-we-divide-the-regularization-term-by-the-number-of-examples-in-regularize.
+        @param gradient_staleness Staleness of the gradient with resepct to the network parameters. See the paper
+        "Staleness-aware Async-SGD for Distributed Deep Learning" by Wei Zhang et al. for more details.
         """
+        eta = self._eta if gradient_staleness == 0 else self._eta / com.REAL_TYPE(gradient_staleness)
+        
         # Update momentum parameters
         rcp_n = com.REAL_TYPE(1.0 / num_training_samples)
         self._v_biases = [
-            vb * self._momentum - self._eta * bi
+            vb * self._momentum - eta * bi
             for vb, bi in zip(self._v_biases, del_bs)]
         self._v_weights = [
-            vw * self._momentum - self._eta * self._lambba * rcp_n * w - self._eta * wi
+            vw * self._momentum - eta * self._lambba * rcp_n * w - eta * wi
             for w, vw, wi in zip(network.weights, self._v_weights, del_ws)]
 
         # Compute new biases and weights
@@ -242,8 +311,8 @@ class StochasticGradientDescent(Optimizer):
         if self._v_weights is None:
             self._v_weights = [vec.zeros_from(w) for w in network.weights]
 
-    def _print_progress(self, fraction, suffix=""):
-        progress_bar.put(fraction, num_progress_chars=40, prefix="MBSGD: ", suffix=suffix)
+    def _print_progress(self, fraction, prefix="", suffix=""):
+        progress_bar.put(fraction, num_progress_chars=40, prefix=prefix, suffix=suffix)
 
 
 def _sgd_backpropagation(
@@ -291,12 +360,14 @@ def _mini_batch_sgd_backpropagation(
     by: np_type.NDArray,
     network: Network,
     gradient_clip_norm,
-    workers: futures.Executor=None):
+    workers: futures.Executor=None,
+    timestamp=None):
     """
     Performs backpropagation for a collection of training data.
     @param bx Batched training input.
-    @param yx Batched training output.
+    @param by Batched training output.
     @param workers If not `None`, use the specified workers to perform the calculation.
+    @param timestamp A timestamp for the calculation. This parameter will be included as-is in the returned tuple.
     """
     assert bx.shape[0] == by.shape[0], f"batch size mismatch: bx.shape={bx.shape}, by.shape={by.shape}"
 
@@ -331,7 +402,7 @@ def _mini_batch_sgd_backpropagation(
     del_bs = [bi * rcp_mini_batch_n for bi in del_bs]
     del_ws = [wi * rcp_mini_batch_n for wi in del_ws]
 
-    return (del_bs, del_ws)
+    return (del_bs, del_ws, timestamp)
 
 def _feedforward_dataset(
     dataset: Dataset,

@@ -88,18 +88,18 @@ def load_network_preset():
     validation_set = training_set[50000:]
     training_set = training_set[:50000]
 
-    cov1 = Convolution(training_set.input_shape, (4, 4), 12, activation=ReLU(), use_tied_bias=False)
-    cov2 = Convolution(cov1.output_shape, (3, 3), 8, activation=ReLU(), use_tied_bias=False)
+    cov1 = Convolution(training_set.input_shape, (4, 4), 16, activation=ReLU(), use_tied_bias=False)
+    cov2 = Convolution(cov1.output_shape, (3, 3), 12, activation=ReLU(), use_tied_bias=False)
     rs1 = Reshape(cov2.output_shape, (1, cov2.output_shape[-2] * cov2.output_shape[-3], cov2.output_shape[-1]))
     fc1 = FullyConnected(rs1.output_shape, (1, 100, 1), activation=Tanh())
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
     network = Network([cov1, cov2, rs1, fc1, fc2])
 
     optimizer = StochasticGradientDescent(
-        eta=0.004,
-        momentum=0.5,
+        eta=0.008,
+        momentum=0.9,
         lambba=1,
-        num_workers=1)
+        num_workers=os.cpu_count())
 
     preset = TrainingPreset()
     preset.name = "Fashion-MNIST Network"

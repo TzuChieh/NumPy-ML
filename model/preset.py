@@ -27,7 +27,8 @@ class TrainingPreset:
         report_eval_performance=False,
         report_training_cost=False,
         report_eval_cost=False,
-        report_folder_path='./output/'):
+        report_folder_path='./output/',
+        sync_param_update=True):
         """
         Train the network with the specified settings.
         """
@@ -43,7 +44,12 @@ class TrainingPreset:
             print(f"Epoch {ei + 1} / {self.num_epochs}:")
 
             # Optimize one epoch at a time
-            self.optimizer.optimize(self.network, 1, self.training_set, print_progress=True)
+            self.optimizer.optimize(
+                self.network,
+                1,
+                self.training_set,
+                print_progress=True,
+                sync_param_update=sync_param_update)
             
             # Collects a brief report for this epoch
             brief = ""
