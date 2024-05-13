@@ -92,7 +92,6 @@ class AbstractSGD(Optimizer):
     def __init__(
         self,
         gradient_clip_norm,
-        momentum,
         eta,
         lambba,
         num_workers):
@@ -107,7 +106,6 @@ class AbstractSGD(Optimizer):
         # self._workers = None if num_workers <= 1 else futures.ThreadPoolExecutor(max_workers=num_workers)
         self._workers = None if num_workers <= 1 else futures.ProcessPoolExecutor(max_workers=num_workers)
         self._gradient_clip_norm = com.REAL_TYPE(np.minimum(gradient_clip_norm, np.finfo(com.REAL_TYPE).max))
-        self._momentum = com.REAL_TYPE(momentum)
         self._eta = com.REAL_TYPE(eta)
         self._lambba = com.REAL_TYPE(lambba)
         self._train_time = timedelta(seconds=0)
@@ -133,10 +131,11 @@ class AbstractSGD(Optimizer):
         pass
 
     @abstractmethod
-    def _gradient_update(self, del_bs, del_ws, network: Network, num_training_samples, eta, lambba):
+    def _gradient_update(self, del_bs, del_ws, eta):
         """
         Called during each `_param_update()` call to give the implementation a chance to modify the gradients
-        before they are applied to the network parameters.
+        before they are applied to the network parameters. In most cases, `_param_update()` is called on each
+        mini batch.
         """
         pass
         
@@ -197,7 +196,6 @@ class AbstractSGD(Optimizer):
     def get_info(self):
         info = f"workers: {self._num_workers}\n"
         info += f"gradient clip: {self._gradient_clip_norm}\n"
-        info += f"momentum: {self._momentum}\n"
         info += f"learning rate: {self._eta}\n"
         info += f"L2 regularization: {self._lambba}"
         return info
@@ -309,12 +307,18 @@ class AbstractSGD(Optimizer):
         """
         eta = self._eta if gradient_staleness == 0 else self._eta / com.REAL_TYPE(gradient_staleness)
         
+        # Add gradient from L2 regularization for weights
+        rcp_n = com.REAL_TYPE(1 / num_training_samples)
+        del_ws = [self._lambba * rcp_n * w + dw for w, dw in zip(network.weights, del_ws)]
+
         # Potentially update graidents
-        del_bs, del_ws = self._gradient_update(del_bs, del_ws, network, num_training_samples, eta, self._lambba)
+        del_bs, del_ws = self._gradient_update(del_bs, del_ws, eta)
 
         # Update biases and weights
-        for layer, b, w in zip(network.hidden_layers, del_bs, del_ws):
-            layer.update_params(b, w)
+        for layer, del_b, del_w in zip(network.hidden_layers, del_bs, del_ws):
+            new_b = layer.bias - eta * del_b
+            new_w = layer.weight - eta * del_w
+            layer.update_params(new_b, new_w)
 
     def _prepare_param_velocities(self, network: Network):
         """
@@ -342,17 +346,15 @@ class SGD(AbstractSGD):
         lambba=0.0,
         num_workers=0):
         """
-        @param gradient_clip_norm Clip threshold for backpropagation gradient based on norm.
-        @param eta Learning rate.
-        @param lambba The regularization parameter.
+        @param momentum The tendency of keeping the previously estimated gradients.
         """
         super().__init__(
             gradient_clip_norm=gradient_clip_norm,
-            momentum=momentum,
             eta=eta,
             lambba=lambba,
             num_workers=num_workers)
         
+        self._momentum = com.REAL_TYPE(momentum)
         self._v_biases = None
         self._v_weights = None
 
@@ -366,26 +368,124 @@ class SGD(AbstractSGD):
     def _on_optimization_end(self):
         pass
 
-    def _gradient_update(self, del_bs, del_ws, network: Network, num_training_samples, eta, lambba):
+    def _gradient_update(self, del_bs, del_ws, eta):
         # Update momentum parameters
-        rcp_n = com.REAL_TYPE(1.0 / num_training_samples)
         self._v_biases = [
-            vb * self._momentum - eta * bi
-            for vb, bi in zip(self._v_biases, del_bs)]
+            vb * self._momentum + (1 - self._momentum) * db
+            for vb, db in zip(self._v_biases, del_bs)]
         self._v_weights = [
-            vw * self._momentum - eta * lambba * rcp_n * w - eta * wi
-            for w, vw, wi in zip(network.weights, self._v_weights, del_ws)]
+            vw * self._momentum + (1 - self._momentum) * dw
+            for vw, dw in zip(self._v_weights, del_ws)]
 
-        # Compute new biases and weights
-        new_biases = [b + vb for b, vb in zip(network.biases, self._v_biases)]
-        new_weights = [w + vw for w, vw in zip(network.weights, self._v_weights)]
+        # New gradients are straightforwward
+        del_bs = self._v_biases
+        del_ws = self._v_weights
 
-        return (new_biases, new_weights)
+        return (del_bs, del_ws)
 
     def get_info(self):
         info = f"optimizer: stochastic gradient descent\n"
-        info += super().get_info()
+        info += super().get_info() + "\n"
+        info += f"momentum: {self._momentum}"
         return info
+
+
+class Adam(AbstractSGD):
+    """
+    Implements the adaptive moment estimation (Adam) optimization algorithm.
+    @see Diederik P. Kingma, Jimmy Ba, "Adam: A Method for Stochastic Optimization", ICLR 2015
+    """
+    def __init__(
+        self,
+        gradient_clip_norm=sys.float_info.max,
+        eta=0.001,
+        lambba=0.0,
+        beta1=0.9,
+        beta2=0.999,
+        epsilon=com.EPSILON,
+        num_workers=0):
+        """
+        @param beta1 First order exponential decay coefficient.
+        @param beta2 Second order exponential decay coefficient.
+        @param epsilon A small value to prevent division by 0.
+        """
+        super().__init__(
+            gradient_clip_norm=gradient_clip_norm,
+            eta=eta,
+            lambba=lambba,
+            num_workers=num_workers)
+        
+        self._beta1 = com.REAL_TYPE(beta1)
+        self._beta2 = com.REAL_TYPE(beta2)
+        self._epsilon = com.REAL_TYPE(epsilon)
+        self._timestep = com.REAL_TYPE(0)
+        self._m_biases = None
+        self._m_weights = None
+        self._v_biases = None
+        self._v_weights = None
+
+    def _on_optimization_begin(self, network: Network):
+        # Initialize gradient records if not already exist
+        if self._m_biases is None:
+            self._m_biases = [vec.zeros_from(b) for b in network.biases]
+        if self._m_weights is None:
+            self._m_weights = [vec.zeros_from(w) for w in network.weights]
+        if self._v_biases is None:
+            self._v_biases = [vec.zeros_from(b) for b in network.biases]
+        if self._v_weights is None:
+            self._v_weights = [vec.zeros_from(w) for w in network.weights]
+
+    def _on_optimization_end(self):
+        pass
+
+    def _gradient_update(self, del_bs, del_ws, eta):
+        # Compute new bias gradients
+        for bi, db in enumerate(del_bs):
+            db, mb, vb = self._adam_gradient_update(
+                db, self._m_biases[bi], self._v_biases[bi], self._beta1, self._beta2, self._epsilon, self._timestep)
+            
+            del_bs[bi] = db
+            self._m_biases[bi] = mb
+            self._v_biases[bi] = vb
+
+        # Compute new weight gradients
+        for wi, dw in enumerate(del_ws):
+            dw, mw, vw = self._adam_gradient_update(
+                dw, self._m_weights[wi], self._v_weights[wi], self._beta1, self._beta2, self._epsilon, self._timestep)
+            
+            del_ws[wi] = dw
+            self._m_weights[wi] = mw
+            self._v_weights[wi] = vw
+
+        self._timestep += 1
+
+        return (del_bs, del_ws)
+
+    def get_info(self):
+        info = f"optimizer: stochastic gradient descent\n"
+        info += super().get_info() + "\n"
+        info += f"beta1: {self._beta1}\n"
+        info += f"beta2: {self._beta2}\n"
+        return info
+    
+    @staticmethod
+    def _adam_gradient_update(g, mg, vg, beta1, beta2, epsilon, timestep):
+        # Update biased first moment estimate
+        mg = mg * beta1 + (1 - beta1) * g
+
+        # Update biased second raw moment estimate
+        vg = vg * beta2 - (1 - beta2) * g**2
+        
+        # Compute bias-corrected first moment estimate
+        mg_hat = mg / (1 - beta1**timestep)
+
+        # Compute bias-corrected second raw moment estimate
+        vg_hat = vg / (1 - beta2**timestep)
+
+        # Compute new gradient
+        g = mg_hat / (np.sqrt(vg_hat) + epsilon)
+
+        return (g, mg, vg)
 
 
 def _sgd_backpropagation(
