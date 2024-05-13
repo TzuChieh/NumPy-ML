@@ -1,7 +1,7 @@
 import common as com
 from dataset import cifar_10, Dataset
 from model.network import Network
-from model.optimizer import StochasticGradientDescent
+from model.optimizer import SGD
 from model.layer import FullyConnected, Convolution, Pool, Reshape, Dropout
 from model.activation import Sigmoid, Softmax, ReLU, Tanh
 from model.preset import TrainingPreset

@@ -42,7 +42,7 @@ class Optimizer(ABC):
         @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
         @return Total cost of the dataset with respect to the view of this optimizer.
         """
-        pass
+        return 0.0
 
     @abstractmethod
     def performance(self, dataset: Dataset, network: Network):
@@ -51,14 +51,14 @@ class Optimizer(ABC):
         @param dataset A list of pairs. Each pair contains input activation (x) and output activation (y).
         @return A tuple that contains (in order): number of correct outputs, fraction of correct outputs.
         """
-        pass
+        return None
 
     @abstractmethod
     def get_info(self) -> str:
         """
         @return A string containing general information of this optimizer.
         """
-        pass
+        return ""
 
     @property
     @abstractmethod
@@ -66,7 +66,7 @@ class Optimizer(ABC):
         """
         @return Time spent for the last call to `optimize()`.
         """
-        pass
+        return timedelta()
     
     @property
     @abstractmethod
@@ -74,7 +74,7 @@ class Optimizer(ABC):
         """
         @return Time spent for all calls to `optimize()`.
         """
-        pass
+        return timedelta()
 
     @property
     @abstractmethod
@@ -82,17 +82,20 @@ class Optimizer(ABC):
         """
         @return Total number of epochs done.
         """
-        pass
+        return 0
 
 
-class StochasticGradientDescent(Optimizer):
+class AbstractSGD(Optimizer):
+    """
+    Base for stochastic gradient descent (SGD) based optmizations.
+    """
     def __init__(
         self,
-        gradient_clip_norm=sys.float_info.max,
-        momentum=0.0,
-        eta=1,
-        lambba=0.0,
-        num_workers=0):
+        gradient_clip_norm,
+        momentum,
+        eta,
+        lambba,
+        num_workers):
         """
         @param gradient_clip_norm Clip threshold for backpropagation gradient based on norm.
         @param eta Learning rate.
@@ -110,12 +113,32 @@ class StochasticGradientDescent(Optimizer):
         self._train_time = timedelta(seconds=0)
         self._total_train_time = timedelta(seconds=0)
         self._total_epochs = 0
-        self._v_biases = None
-        self._v_weights = None
 
     def __del__(self):
         if self._workers is not None:
             self._workers.shutdown()
+
+    @abstractmethod
+    def _on_optimization_begin(self, network: Network):
+        """
+        Called at the beginning of each `optimize()` call.
+        """
+        pass
+
+    @abstractmethod
+    def _on_optimization_end(self):
+        """
+        Called at the ending of each `optimize()` call.
+        """
+        pass
+
+    @abstractmethod
+    def _gradient_update(self, del_bs, del_ws, network: Network, num_training_samples, eta, lambba):
+        """
+        Called during each `_param_update()` call to give the implementation a chance to modify the gradients
+        before they are applied to the network parameters.
+        """
+        pass
         
     def optimize(
         self,
@@ -129,7 +152,8 @@ class StochasticGradientDescent(Optimizer):
         """
         start_time = timer()
 
-        self._prepare_param_velocities(network)
+        self._on_optimization_begin(network)
+
         for _ in range(num_epochs):
             if print_progress:
                 self._print_progress(0)
@@ -140,6 +164,8 @@ class StochasticGradientDescent(Optimizer):
                 self._async_mini_batch_epoch(training_set, network, print_progress=print_progress)
 
             self._total_epochs += 1
+
+        self._on_optimization_end()
 
         self._train_time = timedelta(seconds=(timer() - start_time))
         self._total_train_time += self._train_time
@@ -169,8 +195,7 @@ class StochasticGradientDescent(Optimizer):
         return (num_right_answers, num_right_answers / num_data)
 
     def get_info(self):
-        info = f"optimizer: stochastic gradient descent\n"
-        info += f"workers: {self._num_workers}\n"
+        info = f"workers: {self._num_workers}\n"
         info += f"gradient clip: {self._gradient_clip_norm}\n"
         info += f"momentum: {self._momentum}\n"
         info += f"learning rate: {self._eta}\n"
@@ -284,22 +309,12 @@ class StochasticGradientDescent(Optimizer):
         """
         eta = self._eta if gradient_staleness == 0 else self._eta / com.REAL_TYPE(gradient_staleness)
         
-        # Update momentum parameters
-        rcp_n = com.REAL_TYPE(1.0 / num_training_samples)
-        self._v_biases = [
-            vb * self._momentum - eta * bi
-            for vb, bi in zip(self._v_biases, del_bs)]
-        self._v_weights = [
-            vw * self._momentum - eta * self._lambba * rcp_n * w - eta * wi
-            for w, vw, wi in zip(network.weights, self._v_weights, del_ws)]
-
-        # Compute new biases and weights
-        new_biases = [b + vb for b, vb in zip(network.biases, self._v_biases)]
-        new_weights = [w + vw for w, vw in zip(network.weights, self._v_weights)]
+        # Potentially update graidents
+        del_bs, del_ws = self._gradient_update(del_bs, del_ws, network, num_training_samples, eta, self._lambba)
 
         # Update biases and weights
-        for layer, new_b, new_w in zip(network.hidden_layers, new_biases, new_weights):
-            layer.update_params(new_b, new_w)
+        for layer, b, w in zip(network.hidden_layers, del_bs, del_ws):
+            layer.update_params(b, w)
 
     def _prepare_param_velocities(self, network: Network):
         """
@@ -313,6 +328,64 @@ class StochasticGradientDescent(Optimizer):
 
     def _print_progress(self, fraction, prefix="", suffix=""):
         progress_bar.put(fraction, num_progress_chars=40, prefix=prefix, suffix=suffix)
+
+
+class SGD(AbstractSGD):
+    """
+    General stochastic gradient descent (SGD) optimizer with support for mini-batch and momentum.
+    """
+    def __init__(
+        self,
+        gradient_clip_norm=sys.float_info.max,
+        momentum=0.0,
+        eta=1,
+        lambba=0.0,
+        num_workers=0):
+        """
+        @param gradient_clip_norm Clip threshold for backpropagation gradient based on norm.
+        @param eta Learning rate.
+        @param lambba The regularization parameter.
+        """
+        super().__init__(
+            gradient_clip_norm=gradient_clip_norm,
+            momentum=momentum,
+            eta=eta,
+            lambba=lambba,
+            num_workers=num_workers)
+        
+        self._v_biases = None
+        self._v_weights = None
+
+    def _on_optimization_begin(self, network: Network):
+        # Initialize gradient records if not already exist
+        if self._v_biases is None:
+            self._v_biases = [vec.zeros_from(b) for b in network.biases]
+        if self._v_weights is None:
+            self._v_weights = [vec.zeros_from(w) for w in network.weights]
+
+    def _on_optimization_end(self):
+        pass
+
+    def _gradient_update(self, del_bs, del_ws, network: Network, num_training_samples, eta, lambba):
+        # Update momentum parameters
+        rcp_n = com.REAL_TYPE(1.0 / num_training_samples)
+        self._v_biases = [
+            vb * self._momentum - eta * bi
+            for vb, bi in zip(self._v_biases, del_bs)]
+        self._v_weights = [
+            vw * self._momentum - eta * lambba * rcp_n * w - eta * wi
+            for w, vw, wi in zip(network.weights, self._v_weights, del_ws)]
+
+        # Compute new biases and weights
+        new_biases = [b + vb for b, vb in zip(network.biases, self._v_biases)]
+        new_weights = [w + vw for w, vw in zip(network.weights, self._v_weights)]
+
+        return (new_biases, new_weights)
+
+    def get_info(self):
+        info = f"optimizer: stochastic gradient descent\n"
+        info += super().get_info()
+        return info
 
 
 def _sgd_backpropagation(

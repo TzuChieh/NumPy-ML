@@ -1,7 +1,7 @@
 import common as com
 from dataset import idx_file, Dataset
 from model.network import Network
-from model.optimizer import StochasticGradientDescent
+from model.optimizer import SGD
 from model.layer import FullyConnected, Convolution, Pool, Reshape, Dropout
 from model.activation import Sigmoid, Softmax, ReLU, Tanh
 from model.preset import TrainingPreset
@@ -50,7 +50,7 @@ def load_basic_network_preset():
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
     network = Network([fc1, fc2])
 
-    optimizer = StochasticGradientDescent(
+    optimizer = SGD(
         eta=0.05,
         lambba=1,
         num_workers=1)
@@ -81,7 +81,7 @@ def load_network_preset():
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
     network = Network([cov1, mp1, rs1, d1, fc1, fc2])
 
-    optimizer = StochasticGradientDescent(
+    optimizer = SGD(
         eta=0.05,
         lambba=1,
         num_workers=os.cpu_count())
@@ -114,7 +114,7 @@ def load_deeper_network_preset():
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
     network = Network([cov1, mp1, cov2, mp2, rs1, d1, fc1, fc2])
 
-    optimizer = StochasticGradientDescent(
+    optimizer = SGD(
         eta=0.04,
         lambba=1,
         num_workers=os.cpu_count())
