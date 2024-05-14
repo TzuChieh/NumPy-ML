@@ -1,6 +1,71 @@
 # Simple-NumPy-ML
 
-This is my testground for the basics of machine learning. The implementation is in Python 3 and only NumPy is required (see `./requirements.txt`). *You **DO NOT** need a GPU to train your model.* This project is inspired by a collection of resources that I found useful on the Internet:
+This is my testground for the basics of machine learning. The algorithms in this project are all implemented in pure NumPy (see `./requirements.txt`) with Python 3, and contains many training presets for you to explore. To get a taste of that this project has to offer, let us start by training an AI for recognizing handwritten digits by following these steps:
+
+```Shell
+git clone https://github.com/TzuChieh/Simple-NumPy-ML.git
+cd Simple-NumPy-ML
+python example.py
+```
+
+This will start training a very basic model right away. From the console output, you should see something like this:
+
+```Shell
+Epoch 6 / 10:
+SGD: [████████████████████████████████████████] 100.00% (10.75 ms/batch, 0.00 mins left) | eval perf: 9343 / 10000 (0.9343) | eval cost: 0.4105 | Δt_epoch: 0:00:16.809815 | Δt_report: 0:00:01.866717
+Epoch 7 / 10:
+SGD: [████████████____________________________]  31.09% (10.89 ms/batch, 0.20 mins left)
+```
+
+Let it run a while until epoch 10 is reached, the training will stop and outputs a trained model in `./output/MNIST Basic Network.model`. From the log you should see that this model has around 95% accuracy in recognizing handwritten digits.
+
+## Features
+
+Currently most of the features are for building neural networks. Some visualization utilities are also provided for analyzing generated data.
+
+### Layers
+
+* Reshape
+* FullyReshape (similar to Reshape, but as a layer wrapper)
+* FullyConnected (also commonly known as dense layer)
+* Convolution (arbitrary kernel shape and stride; supports both tied and untied biases)
+* Pool (arbitrary kernel shape and stride; supports max and mean pooling)
+* Dropout
+
+### Activation Functions
+
+* Identity (simply pass through variables)
+* Sigmoid
+* Softmax
+* Tanh
+* ReLU
+
+### Cost Functions
+
+* Quadratic (also known as MSE, L2)
+* Cross Entropy
+
+### Optimizers
+
+* Stochastic Gradient Descent (SGD)
+* Adaptive moment estimation (Adam)
+
+All optimizers support:
+
+* Mini-batch
+* L2 Regularization
+* Gradient Clipping (by norm)
+* Multi-core synchronous parameter update
+* Multi-core asynchronous parameter update
+  - With gradient staleness compensation
+
+### Visualization
+
+* A simple GUI program for viewing training reports
+
+## Interesting Reads
+
+This project is inspired by a collection of resources that I found useful on the Internet:
 
 * Michael Nielsen's [Neural Networks and Deep Learning](http://neuralnetworksanddeeplearning.com/)
 * Yani Ioannou's blog posts for deriving [single-layer backpropagation](https://blog.yani.ai/deltarule/) and [multi-layer backpropagation](https://blog.yani.ai/backpropagation/)
@@ -16,6 +81,7 @@ This is my testground for the basics of machine learning. The implementation is 
 
 ## Some Notes
 
+* *You **DO NOT** need a GPU to train your model.*
 * I do not care the execution speed of the constructed model as the main purpose of this project is for me to understand the basics in the field. It is slow, but can still get the job done in a reasonable amount of time (for small networks).
 * Currently convolution/correlation is implemented in the naive way (sliding a kernel across the matrix). Ideally, both the feedforward and backpropagation pass of convolutional layer can be implemented as matrix multiplications.
 

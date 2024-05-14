@@ -236,7 +236,7 @@ class AbstractSGD(Optimizer):
                 mins_left = seconds_spent / 60 / fraction_done * (1 - fraction_done)
                 self._print_progress(
                     fraction_done,
-                    prefix="MBSGD: ",
+                    prefix=f"{self.__class__.__name__}: ",
                     suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
 
     def _async_mini_batch_epoch(self, training_set: Dataset, network: Network, print_progress=False):
@@ -293,7 +293,7 @@ class AbstractSGD(Optimizer):
                     mins_left = seconds_spent / 60 / fraction_done * (1 - fraction_done)
                     self._print_progress(
                         fraction_done,
-                        prefix="Async MBSGD: ",
+                        prefix=f"Async {self.__class__.__name__}: ",
                         suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
 
         assert not running_batches and param_timestamp == training_set.num_batches
@@ -342,17 +342,22 @@ class SGD(AbstractSGD):
         self,
         gradient_clip_norm=sys.float_info.max,
         momentum=0.0,
+        use_nesterov=False,
         eta=1,
         lambba=0.0,
         num_workers=0):
         """
         @param momentum The tendency of keeping the previously estimated gradients.
+        @param use_nesterov Whether to incorporate Nesterov momentum.
         """
         super().__init__(
             gradient_clip_norm=gradient_clip_norm,
             eta=eta,
             lambba=lambba,
             num_workers=num_workers)
+        
+        # TODO
+        assert not use_nesterov
         
         self._momentum = com.REAL_TYPE(momentum)
         self._v_biases = None
@@ -439,6 +444,8 @@ class Adam(AbstractSGD):
         pass
 
     def _gradient_update(self, del_bs, del_ws, eta):
+        self._timestep += 1
+
         # Compute new bias gradients
         for bi, db in enumerate(del_bs):
             db, mb, vb = self._adam_gradient_update(
@@ -457,15 +464,13 @@ class Adam(AbstractSGD):
             self._m_weights[wi] = mw
             self._v_weights[wi] = vw
 
-        self._timestep += 1
-
         return (del_bs, del_ws)
 
     def get_info(self):
         info = f"optimizer: stochastic gradient descent\n"
         info += super().get_info() + "\n"
         info += f"beta1: {self._beta1}\n"
-        info += f"beta2: {self._beta2}\n"
+        info += f"beta2: {self._beta2}"
         return info
     
     @staticmethod
@@ -474,7 +479,7 @@ class Adam(AbstractSGD):
         mg = mg * beta1 + (1 - beta1) * g
 
         # Update biased second raw moment estimate
-        vg = vg * beta2 - (1 - beta2) * g**2
+        vg = vg * beta2 + (1 - beta2) * g**2
         
         # Compute bias-corrected first moment estimate
         mg_hat = mg / (1 - beta1**timestep)
