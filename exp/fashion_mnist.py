@@ -88,12 +88,15 @@ def load_network_preset():
     validation_set = training_set[50000:]
     training_set = training_set[:50000]
 
-    cov1 = Convolution(training_set.input_shape, (4, 4), 16, activation=ReLU(), use_tied_bias=False)
-    cov2 = Convolution(cov1.output_shape, (3, 3), 12, activation=ReLU(), use_tied_bias=False)
-    rs1 = Reshape(cov2.output_shape, (1, cov2.output_shape[-2] * cov2.output_shape[-3], cov2.output_shape[-1]))
+    cov1 = Convolution(training_set.input_shape, (3, 3), 16, activation=ReLU())
+    d1 = Dropout(cov1.output_shape, 0.2)
+    cov2 = Convolution(d1.output_shape, (3, 3), 12, activation=ReLU())
+    d2 = Dropout(cov2.output_shape, 0.2)
+    mp1 = Pool(d2.output_shape, (1, 2, 2), com.EPooling.MAX)
+    rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
     fc1 = FullyConnected(rs1.output_shape, (1, 100, 1), activation=Tanh())
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
-    network = Network([cov1, cov2, rs1, fc1, fc2])
+    network = Network([cov1, d1, cov2, d2, mp1, rs1, fc1, fc2])
 
     # optimizer = SGD(
     #     eta=0.008,

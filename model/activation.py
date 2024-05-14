@@ -4,6 +4,7 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 """
 
 
+import common as com
 import common.vector as vec
 
 import numpy as np
@@ -140,6 +141,9 @@ class Softmax(ActivationFunction):
 
 
 class Tanh(ActivationFunction):
+    """
+    Hyperbolic tangent (tanh).
+    """
     def eval(self, z):
         return np.tanh(z)
 
@@ -150,6 +154,9 @@ class Tanh(ActivationFunction):
 
 
 class ReLU(ActivationFunction):
+    """
+    Rectified linear unit (ReLU).
+    """
     def eval(self, z):
         return z * (z > 0)
     
@@ -157,4 +164,22 @@ class ReLU(ActivationFunction):
         # Derivatives at 0 is implemented as 0. See "Numerical influence of ReLU'(0) on backpropagation",
         # https://hal.science/hal-03265059/file/Impact_of_ReLU_prime.pdf
         dadz = (z > 0).astype(z.dtype)
+        return dadz
+
+class LeakyReLU(ActivationFunction):
+    """
+    A "leaky" version of `ReLU`, where the gradient is no longer 0 when input is negative. This function is
+    designed to ameliorate the vanishing gradient problem.
+    """
+    def __init__(self, negative_slope=0.02):
+        super().__init__()
+
+        self._alpha = com.REAL_TYPE(negative_slope)
+
+    def eval(self, z):
+        return z * (z > 0) + self._alpha * z * (z <= 0)
+    
+    def diagonal_jacobian(self, z, **kwargs):
+        # Derivatives at 0 is implemented as `self._alpha`
+        dadz = (z > 0) + self._alpha * (z <= 0)
         return dadz

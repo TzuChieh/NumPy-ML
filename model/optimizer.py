@@ -240,7 +240,7 @@ class AbstractSGD(Optimizer):
                     suffix=f" ({ms_per_batch:10.2f} ms/batch, {mins_left:7.2f} mins left)")
 
     def _async_mini_batch_epoch(self, training_set: Dataset, network: Network, print_progress=False):
-        assert self._workers is not None
+        assert self._workers is not None, "asynchronous mini batch is for > 1 workers"
 
         start_time = timer()
         num_training_samples = len(training_set)

@@ -8,7 +8,7 @@ def run():
 
     # Train the network using default settings
     preset.train(
-        eval_set=preset.validation_set,
+        eval_set=preset.test_set,
         report_eval_performance=True,
         report_eval_cost=True)
     

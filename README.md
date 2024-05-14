@@ -26,28 +26,37 @@ Currently most of the features are for building neural networks. Some visualizat
 ### Layers
 
 * Reshape
-* FullyReshape (similar to Reshape, but as a layer wrapper)
-* FullyConnected (also commonly known as dense layer)
+* Fully Reshape (similar to Reshape, but as a layer wrapper)
+* Fully Connected (also commonly known as dense layer)
 * Convolution (arbitrary kernel shape and stride; supports both tied and untied biases)
 * Pool (arbitrary kernel shape and stride; supports max and mean pooling)
 * Dropout
+
+All layers support the following initialization modes (if applicable): Gaussian, LeCun, Xavier, Kaiming He.
+
+Source code: `./model/layer.py`
 
 ### Activation Functions
 
 * Identity (simply pass through variables)
 * Sigmoid
-* Softmax
 * Tanh
+* Softmax
 * ReLU
+* Leaky ReLU
+
+Source code: `./model/activation.py`
 
 ### Cost Functions
 
 * Quadratic (also known as MSE, L2)
 * Cross Entropy
 
+Source code: `./model/cost.py`
+
 ### Optimizers
 
-* Stochastic Gradient Descent (SGD)
+* Stochastic Gradient Descent (SGD, with momentum)
 * Adaptive moment estimation (Adam)
 
 All optimizers support:
@@ -59,9 +68,13 @@ All optimizers support:
 * Multi-core asynchronous parameter update
   - With gradient staleness compensation
 
+Source code: `./model/optimizer.py`
+
 ### Visualization
 
 * A simple GUI program for viewing training reports
+
+Source code: `./gui/`
 
 ## Interesting Reads
 
