@@ -1,6 +1,6 @@
 # Simple-NumPy-ML
 
-This is my testground for the basics of machine learning. The algorithms in this project are all implemented in pure NumPy (see `./requirements.txt`) with Python 3, and contains many training presets for you to explore. To get a taste of that this project has to offer, let us start by training an AI for recognizing handwritten digits by following these steps:
+This is my testground for the basics of machine learning. The algorithms in this project are all implemented in pure NumPy (see `./requirements.txt`) with Python 3, and contains many training presets for you to explore. To get a taste of what this project has to offer, let us start by training an AI for recognizing handwritten digits by following these steps:
 
 ```Shell
 git clone https://github.com/TzuChieh/Simple-NumPy-ML.git
@@ -17,7 +17,7 @@ Epoch 7 / 10:
 SGD: [████████████____________________________]  31.09% (10.89 ms/batch, 0.20 mins left)
 ```
 
-Let it run a while until epoch 10 is reached, the training will stop and outputs a trained model in `./output/MNIST Basic Network.model`. From the log you should see that this model has around 95% accuracy in recognizing handwritten digits.
+Let it run a while until epoch 10 is reached, the training will stop and outputs a trained model in `./output/MNIST Basic Network.model`. From the log you can see that this model has around 95% accuracy in recognizing handwritten digits.
 
 ## Features
 

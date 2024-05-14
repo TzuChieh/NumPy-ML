@@ -112,7 +112,8 @@ def load_network_preset():
     preset.training_set = training_set
     preset.validation_set = validation_set
     preset.test_set = test_set
-    preset.num_epochs = 30
+    # preset.num_epochs = 30
+    preset.num_epochs = 1000
 
     return preset
 
