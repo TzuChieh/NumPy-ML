@@ -157,6 +157,9 @@ class AbstractSGD(Optimizer):
             if print_progress:
                 self._print_progress(0)
 
+            # For better stochastic gradient estimate
+            training_set.shuffle()
+
             if sync_param_update:
                 self._mini_batch_epoch(training_set, network, print_progress=print_progress)
             else:
@@ -172,13 +175,14 @@ class AbstractSGD(Optimizer):
     def total_cost(self, dataset: Dataset, network: Network):
         y_hats = _feedforward_dataset(dataset, network, False, self._workers, self._num_workers)
 
-        cost = 0.0
-        rcp_dataset_n = 1.0 / len(dataset)
+        cost = com.REAL_TYPE(0)
+        rcp_dataset_n = com.REAL_TYPE(1 / len(dataset))
         for y, y_hat in zip(dataset.ys, y_hats):
             cost += network.cost.eval(y_hat, vec.vector_2d(y)) * rcp_dataset_n
+        cost = sum(cost)
 
         # L2 regularization term
-        sum_w2 = sum(np.linalg.norm(w) ** 2 for w in network.weights)
+        sum_w2 = sum(np.linalg.norm(w)**2 for w in network.weights)
         cost += self._lambba * rcp_dataset_n * 0.5 * sum_w2
 
         return float(cost)
@@ -319,16 +323,6 @@ class AbstractSGD(Optimizer):
             new_b = layer.bias - eta * del_b
             new_w = layer.weight - eta * del_w
             layer.update_params(new_b, new_w)
-
-    def _prepare_param_velocities(self, network: Network):
-        """
-        Initialize gradient records if not already exist.
-        """
-        if self._v_biases is None:
-            self._v_biases = [vec.zeros_from(b) for b in network.biases]
-
-        if self._v_weights is None:
-            self._v_weights = [vec.zeros_from(w) for w in network.weights]
 
     def _print_progress(self, fraction, prefix="", suffix=""):
         progress_bar.put(fraction, num_progress_chars=40, prefix=prefix, suffix=suffix)

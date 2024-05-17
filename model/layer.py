@@ -767,7 +767,7 @@ class Dropout(Layer):
     
     def __str__(self):
         p = self._drop_prob
-        expected_shape = self.output_shape[1:] * p
+        expected_shape = self.output_shape[1:] * (1 - p)
         return f"dropout {p * 100}%: {self.input_shape} -> {self.output_shape} (expected: {expected_shape}) (0)"
 
     def _apply_drop(self, x, cache):

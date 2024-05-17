@@ -16,7 +16,7 @@ def images_to_inputs(images):
     return inputs
 
 def labels_to_outputs(labels):
-    outputs = np.empty((len(labels), 1, 10, 1), dtype=com.REAL_TYPE)
+    outputs = np.zeros((len(labels), 1, 10, 1), dtype=com.REAL_TYPE)
     for label, output in zip(labels, outputs):
         output[0, int(label), 0] = 1
     return outputs
@@ -82,30 +82,30 @@ def load_basic_network_preset():
     return preset
 
 def load_network_preset():
-    training_set, test_set = load_data(batch_size=20)
+    training_set, test_set = load_data(batch_size=32)
 
     training_set.shuffle(6942)
     validation_set = training_set[50000:]
     training_set = training_set[:50000]
 
     cov1 = Convolution(training_set.input_shape, (3, 3), 16, activation=ReLU())
-    d1 = Dropout(cov1.output_shape, 0.2)
-    cov2 = Convolution(d1.output_shape, (3, 3), 12, activation=ReLU())
-    d2 = Dropout(cov2.output_shape, 0.2)
-    mp1 = Pool(d2.output_shape, (1, 2, 2), com.EPooling.MAX)
+    cov2 = Convolution(cov1.output_shape, (3, 3), 16, activation=ReLU())
+    mp1 = Pool(cov2.output_shape, (1, 2, 2), com.EPooling.MAX)
+    # d1 = Dropout(cov3.output_shape, 0.2)
+    # rs1 = Reshape(d1.output_shape, (1, d1.output_shape[-2] * d1.output_shape[-3], d1.output_shape[-1]))
     rs1 = Reshape(mp1.output_shape, (1, mp1.output_shape[-2] * mp1.output_shape[-3], mp1.output_shape[-1]))
-    fc1 = FullyConnected(rs1.output_shape, (1, 100, 1), activation=Tanh())
+    fc1 = FullyConnected(rs1.output_shape, (1, 50, 1), activation=Tanh())
     fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
-    network = Network([cov1, d1, cov2, d2, mp1, rs1, fc1, fc2])
+    network = Network([cov1, cov2, mp1, rs1, fc1, fc2])
 
     # optimizer = SGD(
     #     eta=0.008,
     #     momentum=0.9,
-    #     lambba=1,
+    #     lambba=0.2,
     #     num_workers=os.cpu_count())
     
     optimizer = Adam(
-        lambba=1,
+        lambba=0.05,
         num_workers=os.cpu_count())
 
     preset = TrainingPreset()
@@ -117,38 +117,5 @@ def load_network_preset():
     preset.test_set = test_set
     # preset.num_epochs = 30
     preset.num_epochs = 1000
-
-    return preset
-
-def load_deeper_network_preset():
-    training_set, test_set = load_data(batch_size=20)
-
-    training_set.shuffle(6942)
-    validation_set = training_set[50000:]
-    training_set = training_set[:50000]
-
-    cov1 = Convolution(training_set.input_shape, (5, 5), 20)
-    mp1 = Pool(cov1.output_shape, (1, 2, 2), com.EPooling.MAX)
-    cov2 = Convolution(mp1.output_shape, (5, 5), 40)
-    mp2 = Pool(cov2.output_shape, (1, 2, 2), com.EPooling.MAX)
-    rs1 = Reshape(mp2.output_shape, (1, mp2.output_shape[-2] * mp2.output_shape[-3], mp2.output_shape[-1]))
-    d1 = Dropout(rs1.output_shape, 0.5)
-    fc1 = FullyConnected(d1.output_shape, (1, 100, 1), activation=Tanh())
-    fc2 = FullyConnected(fc1.output_shape, (1, 10, 1), activation=Softmax())
-    network = Network([cov1, mp1, cov2, mp2, rs1, d1, fc1, fc2])
-
-    optimizer = SGD(
-        eta=0.04,
-        lambba=1,
-        num_workers=os.cpu_count())
-
-    preset = TrainingPreset()
-    preset.name = "Fashion-MNIST Deeper Network"
-    preset.network = network
-    preset.optimizer = optimizer
-    preset.training_set = training_set
-    preset.validation_set = validation_set
-    preset.test_set = test_set
-    preset.num_epochs = 60
 
     return preset

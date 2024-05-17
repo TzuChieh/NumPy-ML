@@ -18,7 +18,7 @@ def images_to_inputs(images):
     return inputs
 
 def labels_to_outputs(labels):
-    outputs = np.empty((len(labels), 1, 10, 1), dtype=com.REAL_TYPE)
+    outputs = np.zeros((len(labels), 1, 10, 1), dtype=com.REAL_TYPE)
     for label, output in zip(labels, outputs):
         output[0, int(label), 0] = 1
     return outputs
