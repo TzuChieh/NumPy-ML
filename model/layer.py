@@ -363,13 +363,14 @@ class FullyConnected(Layer):
     
     def update_params(self, bias, weight):
         assert self.is_trainable
-        assert self._bias.dtype == com.REAL_DTYPE, f"{self._bias.dtype}"
-        assert self._weight.dtype == com.REAL_DTYPE, f"{self._weight.dtype}"
         assert np.array_equal(self._bias.shape, bias.shape), f"shapes: {self._bias.shape}, {bias.shape}"
         assert np.array_equal(self._weight.shape, weight.shape), f"shapes: {self._weight.shape}, {weight.shape}"
 
         self._bias = bias
         self._weight = weight
+
+        assert self._bias.dtype == com.REAL_DTYPE, f"{self._bias.dtype}"
+        assert self._weight.dtype == com.REAL_DTYPE, f"{self._weight.dtype}"
 
     def weighted_input(self, x, cache):
         z = self.try_get_from_cache(cache, 'z')
@@ -492,6 +493,9 @@ class Convolution(Layer):
         self._bias = bias
         self._weight = weight
 
+        assert self._bias.dtype == com.REAL_DTYPE, f"{self._bias.dtype}"
+        assert self._weight.dtype == com.REAL_DTYPE, f"{self._weight.dtype}"
+
     def weighted_input(self, x, cache):
         z = self.try_get_from_cache(cache, 'z')
         if z is not None:
@@ -541,7 +545,6 @@ class Convolution(Layer):
         return (del_b, del_w)
 
     def backpropagate(self, x, delta, cache):
-        assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
         assert self._with_compatible_output_shape(delta)
 
         # Prepare kernel and delta
@@ -648,7 +651,6 @@ class Pool(Layer):
         return (np.array([]), np.array([]))
 
     def backpropagate(self, x, delta, cache):
-        assert delta.dtype == com.REAL_DTYPE, f"{delta.dtype}"
         assert self._with_compatible_input_shape(x)
         assert self._with_compatible_output_shape(delta)
 
@@ -676,7 +678,7 @@ class Pool(Layer):
                 # has 0 weight)
                 case com.EPooling.MAX:
                     pool_argmax = vec.argmax_lower(x_pool, len(self._kernel_shape))
-                    dCdx[*higher_slices, *pool_argmax] += delta[pool_idx]
+                    dCdx_pool[..., *pool_argmax] += delta[pool_idx]
                 # Similar to the case of max pooling, average pooling is equivalent to an imaginary weight of
                 # the reciprocal of number of pool elements
                 case com.EPooling.AVERAGE:

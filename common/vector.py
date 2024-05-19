@@ -78,7 +78,12 @@ def argmax_lower(a: np_type.NDArray, num_dims) -> np_type.NDArray:
     @param num_dims Number of lower dimensions to perform argmax in. `a.shape[0]` is the highest dimension and
     `a.shape[-1]` is the lowest dimension.
     @return Tuple of array of indices into the last `num_dims` dimensions of `a`, where each index corresponds to the
-    maximum element found. The tuple is suitable for use with NumPy advanced indexing.
+    maximum element found. The tuple is suitable for use with NumPy advanced indexing to retrieve the actual values:
+    ```python
+    >>> a = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> a[[0, 1], *argmax_lower(a, 1)]
+    [3, 6]
+    ```
     """
     higher_shape = a.shape[:-num_dims]
     lower_shape = a.shape[-num_dims:]
@@ -130,7 +135,7 @@ def pool_shape(matrix_shape, kernel_shape, stride_shape) -> np_type.NDArray:
 
 def sliding_window_view(matrix: np_type.NDArray, window_shape, stride_shape=(1,), is_writeable=False) -> np_type.NDArray:
     """
-    @param is_writeable Whether the returned view is writeable or not. For safety, the view is read-only. See
+    @param is_writeable Whether the returned view is writeable or not. For safety, the view is read-only by default. See
     `numpy.lib.stride_tricks.as_strided()` for more details. Basically, you at least need to ensure that the
     write-to locations are not overlapping in vectorized operations.
     """
