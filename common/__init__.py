@@ -8,26 +8,6 @@ from enum import Enum
 np.seterr(divide='ignore')
 
 
-class EParamInit(Enum):
-    GAUSSIAN = 1
-    """
-    Random values that form a standard normal distribution.
-    """
-    LECUN = 2
-    """
-    Scaled version of `GAUSSIAN`. In theory works better for sigmoid and tanh neurons.
-    """
-    XAVIER = 3
-    """
-    Considers both the input and output sizes of a layer, balancing the magnitude of computed signal for forward
-    and backward passes. Also works better for sigmoid and tanh neurons, in theory.
-    """
-    KAIMING_HE = 4
-    """
-    An initialization method designed for ReLU and its variants. Also known as He initialization.
-    """
-
-
 class EPooling(Enum):
     MAX = 1
     """

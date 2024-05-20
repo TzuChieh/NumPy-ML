@@ -1,9 +1,58 @@
 import common as com
-from model.layer import Pool
+from model.layer import Convolution, Pool
+from model.activation import Identity
+from model.initializer import Zeros, Ones
 
 import pytest
 import numpy as np
 
+
+@pytest.mark.parametrize(
+    "kernel_shape", [
+        ((2, 2)),
+        ((1, 1)),
+        ((3, 3)),
+    ]
+)
+def test_convolutional_layer_single_output(kernel_shape):
+    """
+    Tests the most basic form: input is of the same shape as kernel, so there is only a single output value.
+    """
+    rng = np.random.default_rng(7890)
+    input_shape = (1, *kernel_shape)
+    num_output_features = 1 # for simplicity, testing with a single feature map
+    activation = Identity() # so the output can be easily calculated
+    conv_layer = Convolution(
+        input_shape, 
+        kernel_shape, 
+        num_output_features=num_output_features, 
+        activation=activation,
+        bias_init=Zeros(),
+        weight_init=Ones())
+
+    # Random inputs in [-10, 10]
+    xs = [rng.random(input_shape) * 20 - 10 for _ in range(100)]
+
+    # Forward pass
+    output_shape = (num_output_features, 1, 1)
+    for x in xs:
+        z = conv_layer.weighted_input(x, None)
+        assert np.array_equal(z.shape, output_shape)
+        assert np.allclose(z, x.sum())
+
+    # Check trainable parameters: weights and biases
+    for x in xs:
+        d_b, d_w = conv_layer.derived_params(x, np.ones(output_shape), None)
+        assert np.array_equal(d_w[0].shape, input_shape)
+        assert np.array_equal(d_b[0].shape, (1, 1, 1))
+        assert np.allclose(d_w[0], x)
+        assert np.allclose(d_b[0], 1)
+
+    # Backward pass
+    for x in xs:
+        dCdx = conv_layer.backpropagate(x, np.ones(output_shape), None)
+        assert np.array_equal(dCdx.shape, input_shape)
+        assert np.allclose(dCdx, 1)
 
 @pytest.mark.parametrize(
     "kernel_shape", [
@@ -22,13 +71,13 @@ def test_max_pool_layer_single_output(kernel_shape):
     max_pool = Pool(input_shape, kernel_shape, mode=com.EPooling.MAX, stride_shape=None)
 
     # Random inputs in [-10, 10]
-    xs = [rng.random(input_shape) * 20 - 10 for i in range(100)]
+    xs = [rng.random(input_shape) * 20 - 10 for _ in range(100)]
 
     # Forward pass gives the maximum
     for x in xs:
         z = max_pool.weighted_input(x, None)
         assert np.array_equal(z.shape, output_shape)
-        assert z[0] == x.max()
+        assert z[0, 0] == x.max()
 
     # No trainable parameters
     for x in xs:
@@ -63,7 +112,7 @@ def test_max_pool_layer(batch_size, input_shape, kernel_shape, stride_shape):
     assert np.array_equal(output_shape, max_pool.output_shape)
 
     # Random inputs in [-10, 10]
-    bxs = [rng.random((batch_size, *input_shape)) * 20 - 10 for i in range(100)]
+    bxs = [rng.random((batch_size, *input_shape)) * 20 - 10 for _ in range(100)]
 
     # Forward pass gives the maximum
     for bx in bxs:

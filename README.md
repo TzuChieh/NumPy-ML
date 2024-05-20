@@ -32,9 +32,10 @@ Currently most of the features are for building neural networks. Some visualizat
 * Pool (arbitrary kernel shape and stride; supports max and mean pooling)
 * Dropout
 
-All layers support the following initialization modes (if applicable): Gaussian, LeCun, Xavier, Kaiming He.
+All layers support the following initialization modes (if applicable): Zeros, Ones, Constant, Gaussian, LeCun, Xavier, Kaiming He.
 
-Source code: `./model/layer.py`
+Source code (layers): `./model/layer.py`
+Source code (parameter initializers): `./model/initializer.py`
 
 ### Activation Functions
 
@@ -91,6 +92,7 @@ This project is inspired by a collection of resources that I found useful on the
 * Jason Brownlee's [A Gentle Introduction to Dropout for Regularizing Deep Neural Networks](https://machinelearningmastery.com/dropout-for-regularizing-deep-neural-networks/) is an informative overview of dropout with lots of references
 * [This excellent answer](https://datascience.stackexchange.com/questions/117082/how-can-i-implement-dropout-in-scikit-learn/117083#117083) by Conner explains the practical aspect of dropout clearly
 * [This answer](https://stackoverflow.com/questions/42670274/how-to-calculate-fan-in-and-fan-out-in-xavier-initialization-for-neural-networks) by adityassrana clearly explains how to determine fan_in and fan_out when initializing layer weights (with illustration)
+* Course notes of [CS231n Convolutional Neural Networks for Visual Recognition](https://cs231n.github.io/)
 
 ## Some Notes
 

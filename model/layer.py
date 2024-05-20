@@ -6,7 +6,8 @@ All 1-D vectors  of `n` elements are assumed to have shape = `(n, 1)` (a column 
 
 import common as com
 import common.vector as vec
-from model.activation import ActivationFunction, Sigmoid, Identity
+from model.activation import ActivationFunction, Identity, Sigmoid, ReLU
+from model.initializer import Initializer, Zeros, Xavier, KaimingHe
 
 import numpy as np
 import numpy.typing as np_type
@@ -158,43 +159,6 @@ class Layer(ABC):
 
         return self.activation.eval(z)
 
-    def init_params(self, mode: com.EParamInit, fan_in=None, fan_out=None):
-        """
-        Initialize layer parameters. See https://stackoverflow.com/questions/42670274/how-to-calculate-fan-in-and-fan-out-in-xavier-initialization-for-neural-networks
-        for more information on how to determine `fan_in` and `fan_out` for a layer.
-        @param mode The method used for initializing layer parameters.
-        @param fan_in How many inputs will contribute to a single output.
-        @param fan_out How many outputs will contribute to a single input.
-        """
-        rng = np.random.default_rng()
-        fan_in = self.input_shape[-2:].prod() if fan_in is None else fan_in
-        fan_out = self.output_shape[-2:].prod() if fan_out is None else fan_out
-        assert fan_in > 0
-        assert fan_out > 0
-
-        match mode:
-            case com.EParamInit.GAUSSIAN:
-                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
-                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype)
-                self.update_params(b, w)
-            case com.EParamInit.LECUN:
-                w_scale = np.sqrt(1 / fan_in, dtype=self.weight.dtype)
-                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
-                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype) * w_scale
-                self.update_params(b, w)
-            case com.EParamInit.XAVIER:
-                w_scale = np.sqrt(2 / (fan_in + fan_out), dtype=self.weight.dtype)
-                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
-                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype) * w_scale
-                self.update_params(b, w)
-            case com.EParamInit.KAIMING_HE:
-                w_scale = np.sqrt(2 / fan_in, dtype=self.weight.dtype)
-                b = rng.standard_normal(self.bias.shape, dtype=self.bias.dtype)
-                w = rng.standard_normal(self.weight.shape, dtype=self.weight.dtype) * w_scale
-                self.update_params(b, w)
-            case _:
-                raise ValueError("unknown parameter initialization mode specified")
-
     def freeze(self):
         """
         Update the layer such that it is untrainable.
@@ -319,7 +283,8 @@ class FullyConnected(Layer):
         input_shape: typing.Iterable[int],
         output_shape: typing.Iterable[int], 
         activation: ActivationFunction=Sigmoid(),
-        init_mode: com.EParamInit=com.EParamInit.LECUN):
+        bias_init: Initializer=Zeros(),
+        weight_init: Initializer=Xavier()):
         """
         @param input_shape Input dimensions, in (..., number of channels, height, width).
         @param output_shape Output dimensions, in (..., number of channels, height, width).
@@ -336,10 +301,14 @@ class FullyConnected(Layer):
         nh = self.input_shape[:-2].prod()
         ny = self.output_vector_shape[-2]
         nx = self.input_vector_shape[-2]
+
+        # Allocate parameters
         self._bias = np.zeros((nh, ny, 1), dtype=com.REAL_TYPE)
         self._weight = np.zeros((nh, ny, nx), dtype=com.REAL_TYPE)
 
-        self.init_params(init_mode)
+        # Initialize parameters
+        bias_init.init(self._bias)
+        weight_init.init(self._weight, fan_in=nx, fan_out=ny)
 
     @property
     def bias(self):
@@ -423,14 +392,17 @@ class Convolution(Layer):
         kernel_shape: typing.Iterable[int],
         num_output_features: int,
         stride_shape: typing.Iterable[int]=(1,), 
-        activation: ActivationFunction=Sigmoid(),
-        init_mode: com.EParamInit=com.EParamInit.XAVIER,
+        activation: ActivationFunction=ReLU(),
+        bias_init: Initializer=Zeros(),
+        weight_init: Initializer=KaimingHe(),
         use_tied_bias=True):
         """
         @param kernel_shape Kernel 2-D dimensions, in (height, width). Will automatically infer the number of channels
         of the kernel from `input_shape` and integrate it to the shape automatically. This means a single convolution
         window will cover all input channels and produce a single value.
         @param stride_shape Stride dimensions. The shape must be broadcastable to `kernel_shape`.
+        @param bias_init Bias initializer for this layer.
+        @note See the CS231n course note for more information on the topic: https://cs231n.github.io/neural-networks-2/.
         """
         super().__init__()
         
@@ -459,11 +431,12 @@ class Convolution(Layer):
         self._bias = np.zeros((num_output_features, *bias_shape), dtype=com.REAL_TYPE)
         self._weight = np.zeros((num_output_features, *kernel_shape), dtype=com.REAL_TYPE)
 
+        # Initialize parameters
         k_height, k_width = self.kernel_shape[-2:]
-        self.init_params(
-            init_mode,
-            fan_in=k_height * k_width * num_input_channels,
-            fan_out=k_height * k_width * num_output_features)
+        fan_in = k_height * k_width * num_input_channels
+        fan_out = k_height * k_width * num_output_features
+        bias_init.init(self._bias)
+        weight_init.init(self._weight, fan_in=fan_in, fan_out=fan_out)
 
     @property
     def bias(self):
@@ -536,7 +509,7 @@ class Convolution(Layer):
         x_v = np.broadcast_to(x_v, (*x.shape[:-3], num_output_channels, *x.shape[-3:]))
         dilated_delta_v = vec.dilate(delta, self.stride_shape)[..., np.newaxis, :, :]
 
-        # Backpropagation for weight is equivalent to a stride-1 correlation of input with a dilated gradient for
+        # Backpropagation for weight is equivalent to a stride-1 correlation of input with a dilated gradient
         # (in general, 1 output feature will correlate with n input channels)
         del_w = vec.correlate(x_v, dilated_delta_v, num_kernel_dims=3)
 
