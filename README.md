@@ -1,4 +1,4 @@
-# Simple-NumPy-ML
+# NumPy-ML
 
 This is my testground for the basics of machine learning. The algorithms in this project are all implemented in pure NumPy (see `./requirements.txt`) with Python 3, and contains many training presets for you to explore. To get a taste of what this project has to offer, let us start by training an AI for recognizing handwritten digits by following these steps:
 
